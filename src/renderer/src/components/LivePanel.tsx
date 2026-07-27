@@ -224,23 +224,11 @@ export default function LivePanel({
               side="red"
             />
           </div>
-          <div className="mt-5 flex items-center justify-center gap-3 text-[11px] text-mute">
-            <span>
-              {scouting
-                ? t('live.scouting2')
-                : diag && !diag.historyOk
-                  ? t('live.rankOnly')
-                  : ''}
-            </span>
-            {!scouting && diag && !diag.historyOk && diag.sample && (
-              <button
-                onClick={() => navigator.clipboard.writeText(JSON.stringify(diag, null, 2))}
-                className="rounded border border-edge px-2 py-1 text-slate-400 hover:border-teal hover:text-teal"
-              >
-                Copier le diagnostic
-              </button>
-            )}
-          </div>
+          {(scouting || (diag && !diag.historyOk)) && (
+            <p className="mt-5 text-center text-[11px] text-mute">
+              {scouting ? t('live.scouting2') : t('live.rankOnly')}
+            </p>
+          )}
         </>
       ) : (
         <div className="rounded-lg border border-teal/40 bg-teal/5 px-6 py-16 text-center text-mute">
