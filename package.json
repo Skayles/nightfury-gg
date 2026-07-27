@@ -19,6 +19,9 @@
     "@xhayper/discord-rpc": "^1.2.0",
     "league-connect": "^6.0.0-rc13"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "esbuild"]
+  },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
