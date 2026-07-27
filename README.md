@@ -13,6 +13,16 @@ Electron · React · TypeScript · Tailwind
 
 ---
 
+## Screenshots
+
+|                   Profile                    |             Live / Lobby             |
+| :------------------------------------------: | :----------------------------------: |
+|        ![Profile](docs/profile.png)         |     ![Live / Lobby](docs/live.png)     |
+|              **Match detail**               |            **Scoreboard**            |
+|   ![Match detail](docs/match-detail.png)    |  ![Scoreboard](docs/scoreboard.png)  |
+
+---
+
 ## English
 
 ### What is Nightfury.gg?
