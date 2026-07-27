@@ -1,0 +1,15 @@
+appId: com.nightfury.app
+productName: Nightfury.gg
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+win:
+  target:
+    - target: portable
+      arch: [x64]
+mac:
+  target: [dmg]
+  category: public.app-category.utilities

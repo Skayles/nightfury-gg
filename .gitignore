@@ -1,0 +1,23 @@
+# dependencies
+node_modules
+
+# build output
+out
+dist
+
+# logs & local env
+*.log
+.env
+.env.*
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# app user-data / secrets (never committed)
+google-token.json
+settings.json
+matches.json

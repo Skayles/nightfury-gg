@@ -1,0 +1,701 @@
+import https from 'https'
+import {
+  authenticate,
+  createHttp1Request,
+  createWebSocketConnection,
+  Credentials,
+  LeagueWebSocket
+} from 'league-connect'
+import { parseGame, MatchRecord, ItemPurchase, LiveGame, ScoutResult, ScoutDiag } from './stats'
+import { championImageFromLive, ddragonInfo } from './ddragon'
+
+type SgpCtx = {
+  sessionToken: string
+  rsoToken: string
+  base: string
+  region: string
+  hosts: string[]
+}
+type StatusListener = (status: LcuStatus) => void
+type MatchesListener = (records: MatchRecord[], reason: 'backfill' | 'game-end') => void
+type SkipIdsProvider = () => Set<number>
+type ProfileListener = (profile: SummonerProfile) => void
+
+export interface SummonerProfile {
+  gameName: string
+  tagLine: string
+  profileIconId: number
+  summonerLevel: number
+  rankedTier: string | null
+  rankedDivision: string | null
+  rankedLp: number | null
+}
+
+export type LcuStatus =
+  | { state: 'disconnected' }
+  | { state: 'connecting' }
+  | { state: 'connected'; summoner: string }
+  | { state: 'in-game' }
+  | { state: 'error'; message: string }
+
+export class LcuService {
+  private creds: Credentials | null = null
+  private ws: LeagueWebSocket | null = null
+  private puuid: string | null = null
+  private summonerName = 'Invocateur'
+  private lastPhase = ''
+  private statusCb: StatusListener
+  private matchesCb: MatchesListener
+  private skipIds: SkipIdsProvider
+  private profileCb: ProfileListener
+
+  constructor(
+    statusCb: StatusListener,
+    matchesCb: MatchesListener,
+    skipIds: SkipIdsProvider,
+    profileCb: ProfileListener
+  ) {
+    this.statusCb = statusCb
+    this.matchesCb = matchesCb
+    this.skipIds = skipIds
+    this.profileCb = profileCb
+  }
+
+  /** Blocks until the League client is running, then wires everything up. */
+  async connect(): Promise<void> {
+    this.statusCb({ state: 'connecting' })
+    try {
+      this.creds = await authenticate({ awaitConnection: true, pollInterval: 2500 })
+      const summoner = await this.request<any>(
+        'GET',
+        '/lol-summoner/v1/current-summoner'
+      )
+      this.puuid = summoner?.puuid ?? null
+      this.summonerName = summoner?.gameName ?? summoner?.displayName ?? 'Invocateur'
+      this.statusCb({ state: 'connected', summoner: this.summonerName })
+
+      // Ranked (Solo/Duo) for the profile header — best effort.
+      let tier: string | null = null
+      let division: string | null = null
+      let lp: number | null = null
+      try {
+        const rs = await this.request<any>('GET', '/lol-ranked/v1/current-ranked-stats')
+        const solo = rs?.queueMap?.RANKED_SOLO_5x5
+        if (solo && solo.tier) {
+          tier = solo.tier
+          division = solo.division ?? null
+          lp = typeof solo.leaguePoints === 'number' ? solo.leaguePoints : null
+        }
+      } catch {
+        /* rank optional */
+      }
+
+      this.profileCb({
+        gameName: summoner?.gameName ?? summoner?.displayName ?? 'Invocateur',
+        tagLine: summoner?.tagLine ?? '',
+        profileIconId: summoner?.profileIconId ?? 0,
+        summonerLevel: summoner?.summonerLevel ?? 0,
+        rankedTier: tier,
+        rankedDivision: division,
+        rankedLp: lp
+      })
+
+      // Initial backfill of recent history.
+      await this.refreshHistory('backfill')
+
+      // Live end-of-game detection.
+      await this.openSocket()
+
+      // If a game is ALREADY in progress when we start, the socket won't fire an
+      // initial event — check the current phase once so live tracking works.
+      try {
+        const phase = await this.request<any>('GET', '/lol-gameflow/v1/gameflow-phase')
+        const p = String(phase)
+        this.lastPhase = p
+        if (p === 'InProgress') this.statusCb({ state: 'in-game' })
+      } catch {
+        /* ignore */
+      }
+    } catch (e: any) {
+      this.statusCb({ state: 'error', message: e?.message ?? String(e) })
+      // Retry after a delay — the client may just not be open yet.
+      setTimeout(() => this.connect(), 8000)
+    }
+  }
+
+  private async openSocket(): Promise<void> {
+    this.ws = await createWebSocketConnection({
+      authenticationOptions: { awaitConnection: true },
+      pollInterval: 2500,
+      maxRetries: 20
+    })
+    this.ws.subscribe('/lol-gameflow/v1/gameflow-phase', (phase: any) => {
+      const p = String(phase)
+      if (p === 'InProgress') {
+        this.statusCb({ state: 'in-game' })
+      } else if (this.lastPhase === 'InProgress') {
+        // Just left a game → back in the client.
+        this.statusCb({ state: 'connected', summoner: this.summonerName })
+      }
+      // EndOfGame (SR) / WaitingForStats (ARAM etc.) both signal a finished game.
+      if (
+        (p === 'EndOfGame' || p === 'WaitingForStats' || p === 'PreEndOfGame') &&
+        this.lastPhase !== p
+      ) {
+        // History takes a few seconds to populate after the game ends.
+        setTimeout(() => this.refreshHistory('game-end'), 6000)
+      }
+      this.lastPhase = p
+    })
+  }
+
+  // How deep to go when backfilling (the LCU serves ~20 games per request, and
+  // only keeps a limited recent window — a few hundred at most).
+  private static PAGE = 20
+  private static MAX_BACKFILL = 300
+
+  async refreshHistory(reason: 'backfill' | 'game-end'): Promise<MatchRecord[]> {
+    if (!this.puuid) return []
+
+    const maxGames = reason === 'game-end' ? LcuService.PAGE : LcuService.MAX_BACKFILL
+
+    // 1) Page through the summary list to enumerate the games.
+    const summaries: any[] = []
+    for (let beg = 0; beg < maxGames; beg += LcuService.PAGE) {
+      const end = beg + LcuService.PAGE - 1
+      const data = await this.request<any>(
+        'GET',
+        `/lol-match-history/v1/products/lol/current-summoner/matches?begIndex=${beg}&endIndex=${end}`
+      )
+      const games: any[] = data?.games?.games ?? []
+      summaries.push(...games)
+      if (games.length < LcuService.PAGE) break
+    }
+
+    // 2) For each game we don't already have correct data for, fetch the FULL
+    //    game detail — the summary list only fully populates the current
+    //    summoner's stats, so team totals (and thus KP) are wrong from it.
+    const skip = this.skipIds()
+    const records: MatchRecord[] = []
+    for (const g of summaries) {
+      const id = g.gameId
+      if (typeof id === 'number' && skip.has(id)) continue
+
+      let parsed: MatchRecord | null = null
+      try {
+        const detail = await this.request<any>('GET', `/lol-match-history/v1/games/${id}`)
+        parsed = parseGame(detail, this.puuid)
+      } catch {
+        /* detail unavailable → fall back to the summary object */
+      }
+      if (!parsed) parsed = parseGame(g, this.puuid)
+      if (parsed) records.push(parsed)
+    }
+
+    this.matchesCb(records, reason)
+    return records
+  }
+
+  /** Champion id the current player is on in the live game (0 if unknown). */
+  async currentChampionId(): Promise<number> {
+    if (!this.creds || !this.puuid) return 0
+    try {
+      const data = await this.request<any>('GET', '/lol-gameflow/v1/session')
+      const gd = data?.gameData
+      if (!gd) return 0
+      const all = [...(gd.teamOne ?? []), ...(gd.teamTwo ?? [])]
+      const me = all.find((p: any) => p?.puuid && p.puuid === this.puuid)
+      return me?.championId || 0
+    } catch {
+      return 0
+    }
+  }
+
+  /** The 10 players of the current game (name + champion + puuid), from the
+   *  in-game Live Client Data API merged with the LCU gameflow (for puuids). */
+  async fetchLiveGame(): Promise<LiveGame | null> {
+    const players = await liveClientGet('/liveclientdata/playerlist')
+    if (!Array.isArray(players) || !players.length) return null
+
+    // Gameflow gives puuids + championIds + queue (names are empty there).
+    let gd: any = null
+    try {
+      const gf = await this.request<any>('GET', '/lol-gameflow/v1/session')
+      gd = gf?.gameData
+    } catch {
+      /* ignore */
+    }
+    const queueId = gd?.queue?.id ?? gd?.queueId ?? 0
+    const champById = ddragonInfo().champions
+    const puuidByImage = new Map<string, string>()
+    const champIdByImage = new Map<string, number>()
+    for (const p of [...(gd?.teamOne ?? []), ...(gd?.teamTwo ?? [])]) {
+      const img = champById[p.championId]
+      if (img) {
+        if (p.puuid) puuidByImage.set(img, p.puuid)
+        champIdByImage.set(img, p.championId)
+      }
+    }
+
+    const map = (p: any): any => {
+      const championImage = championImageFromLive(p.championName, p.rawChampionName)
+      return {
+        name: p.riotIdGameName || p.summonerName || p.riotId || '',
+        championImage,
+        puuid: puuidByImage.get(championImage) || ''
+      }
+    }
+    const teamOne = players.filter((p: any) => p.team === 'ORDER').map(map)
+    const teamTwo = players.filter((p: any) => p.team === 'CHAOS').map(map)
+    if (!teamOne.length && !teamTwo.length) return null
+    return { teamOne, teamTwo, queueId }
+  }
+
+  // ---------- Keyless scouting via the SGP (client session token) ----------
+
+  private sgpCtx: SgpCtx | null = null
+
+  private async buildSgpContext(): Promise<{ ctx: SgpCtx | null; diag: ScoutDiag }> {
+    const diag: ScoutDiag = {
+      ok: false,
+      tokenFound: false,
+      baseFound: false,
+      historyOk: false,
+      base: '',
+      region: '',
+      error: '',
+      sample: ''
+    }
+    // 1) tokens — ranked (ledge) uses the league-session JWT; match history
+    //    (match-history-query) uses the RSO access token. Get both.
+    let sessionToken = ''
+    try {
+      const t = await this.request<any>('GET', '/lol-league-session/v1/league-session-token')
+      sessionToken = typeof t === 'string' ? t : t?.token || ''
+    } catch {
+      /* ignore */
+    }
+    let rsoToken = ''
+    try {
+      const t = await this.request<any>('GET', '/lol-rso-auth/v1/authorization/access-token')
+      rsoToken = t?.token || ''
+    } catch {
+      /* ignore */
+    }
+    if (!rsoToken) {
+      try {
+        const t = await this.request<any>('GET', '/entitlements/v1/token')
+        rsoToken = t?.accessToken || ''
+      } catch {
+        /* ignore */
+      }
+    }
+    diag.tokenFound = Boolean(sessionToken || rsoToken)
+
+    // 2) region
+    let region = ''
+    try {
+      const rl = await this.request<any>('GET', '/riotclient/region-locale')
+      region = (rl?.region || '').toUpperCase()
+    } catch {
+      /* ignore */
+    }
+    diag.region = region
+
+    // 3) SGP base — discover from platform config, else construct from region.
+    let base = ''
+    let hosts: string[] = []
+    try {
+      const cfg = await this.request<any>('GET', '/lol-platform-config/v1/namespaces')
+      base = findSgpBase(cfg)
+      hosts = findAllSgpHosts(cfg)
+    } catch {
+      /* ignore */
+    }
+    if (!base) base = sgpBaseFromRegion(region)
+    diag.base = base
+    diag.baseFound = Boolean(base)
+
+    if ((!sessionToken && !rsoToken) || !base) {
+      diag.error = !sessionToken && !rsoToken ? 'token introuvable' : 'serveur SGP introuvable'
+      this.sgpCtx = null
+      return { ctx: null, diag }
+    }
+    diag.ok = true
+    this.sgpCtx = { sessionToken, rsoToken, base, region, hosts }
+    return { ctx: this.sgpCtx, diag }
+  }
+
+  async scoutPlayers(
+    inputs: { puuid: string; championId: number }[],
+    queueId: number
+  ): Promise<{ results: ScoutResult[]; diag: ScoutDiag }> {
+    const { ctx, diag } = await this.buildSgpContext()
+    if (!ctx) return { results: [], diag }
+
+    const results: ScoutResult[] = []
+    let rawOk = false
+    let sampleRanked: any = null
+    let sampleMh: any = null
+    const ppBase = ctx.base.replace('.lol.sgp.pvp.net', '.pp.sgp.pvp.net')
+    const mhProbe: { label: string; status: number; body?: string }[] = []
+    let mhCombo: { base: string; token: string; label: string } | null = null
+    let probed = false
+    for (const inp of inputs) {
+      if (!inp.puuid) continue
+      const res: ScoutResult = {
+        puuid: inp.puuid,
+        rankTier: null,
+        rankDivision: null,
+        rankLp: null,
+        winrate: null,
+        games: null,
+        champGames: null,
+        champWinrate: null
+      }
+      // Ranked
+      try {
+        const r = await sgpGet(
+          ctx.base,
+          `/leagues-ledge/v2/rankedStats/puuid/${inp.puuid}`,
+          ctx.sessionToken
+        )
+        if (r) {
+          rawOk = true
+          if (!sampleRanked) sampleRanked = r
+        }
+        const arr: any[] = Array.isArray(r) ? r : (r?.queues ?? r?.queueMap ?? [])
+        const list = Array.isArray(arr) ? arr : Object.values(arr)
+        const solo = list.find(
+          (q: any) => q?.queueType === 'RANKED_SOLO_5x5' || q?.queue === 'RANKED_SOLO_5x5'
+        )
+        if (solo?.tier) {
+          res.rankTier = solo.tier
+          res.rankDivision = solo.rank ?? solo.division ?? null
+          res.rankLp =
+            typeof solo.leaguePoints === 'number'
+              ? solo.leaguePoints
+              : typeof solo.lp === 'number'
+                ? solo.lp
+                : null
+        }
+      } catch {
+        /* ignore */
+      }
+      // Match history → winrate + champion stats. Ranked lives on the ledge
+      // host; match history may live on the pp host — try both.
+      try {
+        const mhPath = `/match-history-query/v1/products/lol/player/${inp.puuid}/SUMMONER?startIndex=0&count=20`
+        let mh: any = null
+        if (!probed) {
+          probed = true
+          const hostSet = Array.from(new Set([ctx.base, ppBase, ...ctx.hosts]))
+          const combos: { label: string; base: string; token: string }[] = []
+          for (const h of hostSet) {
+            if (ctx.rsoToken) combos.push({ label: `${h} | rso`, base: h, token: ctx.rsoToken })
+            if (ctx.sessionToken)
+              combos.push({ label: `${h} | session`, base: h, token: ctx.sessionToken })
+          }
+          for (const c of combos) {
+            const raw = await httpsGetRaw(c.base + mhPath, {
+              Authorization: `Bearer ${c.token}`,
+              Accept: 'application/json'
+            })
+            mhProbe.push({
+              label: c.label,
+              status: raw.status,
+              body: raw.status === 200 ? undefined : (raw.text || '').slice(0, 80)
+            })
+            if (raw.status === 200 && raw.json && !isSgpError(raw.json)) {
+              mhCombo = { base: c.base, token: c.token, label: c.label }
+              mh = raw.json
+              break
+            }
+          }
+        } else if (mhCombo) {
+          mh = await sgpGet(mhCombo.base, mhPath, mhCombo.token)
+        }
+        if (mh && !isSgpError(mh)) {
+          rawOk = true
+          if (!sampleMh) sampleMh = mh
+        }
+        if (isSgpError(mh)) mh = null
+        if (mh) {
+          rawOk = true
+          if (!sampleMh) sampleMh = mh
+        }
+        if (isSgpError(mh)) mh = null
+        const games: any[] = mh?.games?.games ?? mh?.games ?? mh?.matches ?? (Array.isArray(mh) ? mh : [])
+        const rankedQueues = new Set([420, 440])
+        const filterToRanked = rankedQueues.has(queueId)
+        let w = 0
+        let g = 0
+        let cw = 0
+        let cg = 0
+        for (const gm of games) {
+          // SGP stores the flat match under `.json`; match-v5 nests under `.info`.
+          const info = gm?.json ?? gm?.info ?? gm
+          if (!info) continue
+          const q = info.queueId ?? info.queue ?? 0
+          // In a ranked game, only count ranked history; otherwise count all.
+          if (filterToRanked && !rankedQueues.has(q)) continue
+          let parts: any[] = info.participants ?? []
+          // Legacy shape: puuid lives in participantIdentities.
+          if (parts.length && parts[0] && parts[0].puuid === undefined && info.participantIdentities) {
+            const idOf = new Map<number, string>()
+            for (const pi of info.participantIdentities)
+              if (pi?.player?.puuid) idOf.set(pi.participantId, pi.player.puuid)
+            parts = parts.map((p: any) => ({ ...p, puuid: idOf.get(p.participantId) }))
+          }
+          const me = parts.find((p: any) => p.puuid === inp.puuid)
+          if (!me) continue
+          const win = me.win ?? me.stats?.win ?? false
+          const champId = me.championId ?? me.stats?.championId ?? 0
+          g++
+          if (win) w++
+          if (inp.championId && champId === inp.championId) {
+            cg++
+            if (win) cw++
+          }
+        }
+        if (g > 0) {
+          res.games = g
+          res.winrate = Math.round((w / g) * 100)
+        }
+        if (cg > 0) {
+          res.champGames = cg
+          res.champWinrate = Math.round((cw / cg) * 100)
+        }
+      } catch {
+        /* ignore */
+      }
+      results.push(res)
+    }
+    const gotRank = results.some((r) => r.rankTier !== null)
+    const gotGames = results.some((r) => r.games !== null)
+    diag.ok = gotRank || gotGames
+    diag.historyOk = gotGames
+    if (!gotGames) {
+      try {
+        diag.sample = JSON.stringify({
+          hosts: this.sgpCtx?.hosts ?? [],
+          mhProbe,
+          rankedOk: gotRank,
+          matchHistory: sampleMh
+        }).slice(0, 6000)
+      } catch {
+        diag.sample = ''
+      }
+      if (!diag.error) {
+        diag.error = rawOk
+          ? 'historique reçu mais non lu (format à ajuster)'
+          : 'historique : aucune réponse du serveur'
+      }
+      console.log('[scout] match-history probe:', diag.sample)
+    }
+    return { results, diag }
+  }
+
+  /** Item purchase order (reconciled with undos) for one game + participant. */
+  async fetchItemTimeline(gameId: number, participantId: number): Promise<ItemPurchase[]> {
+    if (!this.creds) return []
+    let data: any
+    try {
+      data = await this.request<any>('GET', `/lol-match-history/v1/game-timelines/${gameId}`)
+    } catch {
+      return []
+    }
+    const frames: any[] = data?.frames ?? data?.info?.frames ?? []
+    const events: any[] = []
+    for (const f of frames) for (const e of f.events ?? []) events.push(e)
+    events.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
+
+    const build: ItemPurchase[] = []
+    for (const e of events) {
+      if (e.participantId !== participantId) continue
+      if (e.type === 'ITEM_PURCHASED' && e.itemId) {
+        build.push({ itemId: e.itemId, timestamp: e.timestamp ?? 0 })
+      } else if (e.type === 'ITEM_UNDO') {
+        const undone = e.beforeId || e.afterId
+        for (let i = build.length - 1; i >= 0; i--) {
+          if (build[i].itemId === undone) {
+            build.splice(i, 1)
+            break
+          }
+        }
+      }
+    }
+    return build
+  }
+
+  private async request<T>(method: string, url: string): Promise<T> {
+    if (!this.creds) throw new Error('LCU not authenticated')
+    const res = await createHttp1Request({ method, url } as any, this.creds)
+    // league-connect returns an object exposing .json()
+    return (await (res as any).json()) as T
+  }
+
+  close(): void {
+    try {
+      this.ws?.close()
+    } catch {
+      /* noop */
+    }
+  }
+}
+
+/** GET the local in-game Live Client Data API (self-signed cert on port 2999). */
+function liveClientGet(path: string): Promise<any> {
+  return new Promise((resolve) => {
+    const req = https.request(
+      { host: '127.0.0.1', port: 2999, path, method: 'GET', rejectUnauthorized: false, timeout: 2000 },
+      (res) => {
+        let body = ''
+        res.on('data', (c) => (body += c))
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(body))
+          } catch {
+            resolve(null)
+          }
+        })
+      }
+    )
+    req.on('error', () => resolve(null))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve(null)
+    })
+    req.end()
+  })
+}
+
+/** External HTTPS GET returning status + parsed JSON + raw text snippet. */
+function httpsGetRaw(
+  url: string,
+  headers: Record<string, string>
+): Promise<{ status: number; json: any; text: string }> {
+  return new Promise((resolve) => {
+    let u: URL
+    try {
+      u = new URL(url)
+    } catch {
+      resolve({ status: 0, json: null, text: '' })
+      return
+    }
+    const req = https.request(
+      {
+        host: u.hostname,
+        port: u.port || 443,
+        path: u.pathname + u.search,
+        method: 'GET',
+        headers,
+        rejectUnauthorized: false,
+        timeout: 6000
+      },
+      (res) => {
+        let body = ''
+        res.on('data', (c) => (body += c))
+        res.on('end', () => {
+          let json: any = null
+          try {
+            json = JSON.parse(body)
+          } catch {
+            json = null
+          }
+          resolve({ status: res.statusCode || 0, json, text: body.slice(0, 300) })
+        })
+      }
+    )
+    req.on('error', () => resolve({ status: 0, json: null, text: '' }))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve({ status: 0, json: null, text: '' })
+    })
+    req.end()
+  })
+}
+
+/** External HTTPS GET returning parsed JSON (used for the SGP servers). */
+function httpsGetJson(url: string, headers: Record<string, string>): Promise<any> {
+  return httpsGetRaw(url, headers).then((r) => r.json)
+}
+
+function sgpGet(base: string, path: string, token: string): Promise<any> {
+  return httpsGetJson(base + path, { Authorization: `Bearer ${token}`, Accept: 'application/json' })
+}
+
+/** True when an SGP response is a Riot error body ({ status: { status_code } }). */
+function isSgpError(r: any): boolean {
+  return Boolean(r && r.status && typeof r.status.status_code === 'number')
+}
+
+/** Deep-scan a config object for a URL whose host is on the SGP network. */
+function findSgpBase(cfg: any): string {
+  let found = ''
+  const visit = (v: any): void => {
+    if (found) return
+    if (typeof v === 'string') {
+      const m = v.match(/https?:\/\/[^"'\s]*sgp\.pvp\.net/i)
+      if (m) {
+        try {
+          found = new URL(m[0]).origin
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (v && typeof v === 'object') {
+      for (const k of Object.keys(v)) visit(v[k])
+    }
+  }
+  visit(cfg)
+  return found
+}
+
+/** Deep-scan for ALL distinct SGP / player-platform host origins in the config. */
+function findAllSgpHosts(cfg: any): string[] {
+  const set = new Set<string>()
+  const visit = (v: any): void => {
+    if (typeof v === 'string') {
+      const rx = /https?:\/\/[^"'\s]*(?:sgp\.pvp\.net|pp\.riotgames\.com)[^"'\s]*/gi
+      const matches = v.match(rx)
+      if (matches) {
+        for (const m of matches) {
+          try {
+            set.add(new URL(m).origin)
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    } else if (v && typeof v === 'object') {
+      for (const k of Object.keys(v)) visit(v[k])
+    }
+  }
+  visit(cfg)
+  return Array.from(set).slice(0, 12)
+}
+
+const REGION_TO_SGP: Record<string, string> = {
+  EUW: 'euw1',
+  EUNE: 'eun1',
+  NA: 'na1',
+  BR: 'br1',
+  LAN: 'la1',
+  LAS: 'la2',
+  OCE: 'oc1',
+  TR: 'tr1',
+  RU: 'ru',
+  JP: 'jp1',
+  KR: 'kr',
+  PH: 'ph2',
+  SG: 'sg2',
+  TH: 'th2',
+  TW: 'tw2',
+  VN: 'vn2'
+}
+
+function sgpBaseFromRegion(region: string): string {
+  const id = REGION_TO_SGP[region]
+  return id ? `https://${id}-red.pp.sgp.pvp.net` : ''
+}
