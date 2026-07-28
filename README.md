@@ -204,18 +204,18 @@ la même façon que le client du jeu parle aux serveurs de Riot.
 
 Nightfury.gg est une application Electron open-source **non signée** (un certificat
 de signature coûte cher pour un projet gratuit). Comme l'exécutable est récent et
-non signé, Windows **SmartScreen** ou ton navigateur peuvent prévenir qu'il est
+non signé, Windows **SmartScreen** ou vos navigateur peuvent prévenir qu'il est
 « peu téléchargé » ou le signaler comme suspect. **C'est un avertissement de
 réputation/heuristique, pas un vrai virus** — l'app ne fait que des requêtes
-locales vers ton client League et vers les serveurs publics de Riot (Data
+locales vers votre client League et vers les serveurs publics de Riot (Data
 Dragon), et ne détient aucun secret.
 
-- Le code source complet est dans ce dépôt — tu peux vérifier exactement ce qu'il fait.
+- Le code source complet est dans ce dépôt — vous pouvez vérifier exactement ce qu'il fait.
 - Tu peux analyser le fichier toi-même, par exemple sur [VirusTotal](https://www.virustotal.com/).
 
 Pour le lancer malgré tout :
-- **SmartScreen :** clique sur *Informations complémentaires* → *Exécuter quand même*.
-- **Téléchargement Chrome / Edge :** ouvre le menu *⋯* à côté du téléchargement → *Conserver*.
+- **SmartScreen :** cliquez sur *Informations complémentaires* → *Exécuter quand même*.
+- **Téléchargement Chrome / Edge :** ouvrez le menu *⋯* à côté du téléchargement → *Conserver*.
 
 L'avertissement disparaît de lui-même à mesure que l'app est téléchargée et
 conservée par plus de monde — la réputation se construit avec le temps.
