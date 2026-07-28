@@ -71,6 +71,25 @@ the same way the game client itself talks to Riot's servers.
 > stay 100% keyless, Nightfury.gg shows other players' **rank** only. Their full
 > stats are one click away on op.gg / Porofessor if you want them.
 
+### ⚠️ Windows SmartScreen / antivirus warning
+
+Nightfury.gg is an open-source Electron app that isn't code-signed (a signing
+certificate is expensive for a free project). Because the executable is new and
+unsigned, Windows **SmartScreen** or your browser may warn that it's "not
+commonly downloaded" or flag it as suspicious. **This is a reputation/heuristic
+warning, not an actual virus** — the app only makes local requests to your
+League client and to Riot's public servers (Data Dragon), and holds no secret.
+
+- The full source code is in this repository — you can read exactly what it does.
+- You can scan the release yourself, e.g. on [VirusTotal](https://www.virustotal.com/).
+
+To run it anyway:
+- **SmartScreen:** click *More info* → *Run anyway*.
+- **Chrome / Edge download:** open the *⋯* menu next to the download → *Keep*.
+
+The warning fades on its own as more people download and keep the app — reputation
+builds over time.
+
 ### Getting started (development)
 
 Requirements: **Node.js 18+** and the League client installed.
@@ -180,6 +199,26 @@ la même façon que le client du jeu parle aux serveurs de Riot.
 > clé API **de production** Riot. Pour rester 100 % keyless, Nightfury.gg affiche
 > uniquement leur **rang**. Leurs stats complètes restent à un clic sur op.gg /
 > Porofessor si tu les veux.
+
+### ⚠️ Avertissement SmartScreen / antivirus (Windows)
+
+Nightfury.gg est une application Electron open-source **non signée** (un certificat
+de signature coûte cher pour un projet gratuit). Comme l'exécutable est récent et
+non signé, Windows **SmartScreen** ou ton navigateur peuvent prévenir qu'il est
+« peu téléchargé » ou le signaler comme suspect. **C'est un avertissement de
+réputation/heuristique, pas un vrai virus** — l'app ne fait que des requêtes
+locales vers ton client League et vers les serveurs publics de Riot (Data
+Dragon), et ne détient aucun secret.
+
+- Le code source complet est dans ce dépôt — tu peux vérifier exactement ce qu'il fait.
+- Tu peux analyser le fichier toi-même, par exemple sur [VirusTotal](https://www.virustotal.com/).
+
+Pour le lancer malgré tout :
+- **SmartScreen :** clique sur *Informations complémentaires* → *Exécuter quand même*.
+- **Téléchargement Chrome / Edge :** ouvre le menu *⋯* à côté du téléchargement → *Conserver*.
+
+L'avertissement disparaît de lui-même à mesure que l'app est téléchargée et
+conservée par plus de monde — la réputation se construit avec le temps.
 
 ### Démarrage (développement)
 
