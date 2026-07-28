@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import type { MatchRecord, DdragonInfo, ItemPurchase, ScorePlayer } from '../../../preload/index.d'
-import { useT } from '../i18n'
-import { champIcon, itemIcon, fmtDate, fmtDuration, fmtNum } from '../lib'
+import type { MatchRecord, DdragonInfo, TimelineEvent, ScorePlayer } from '../../../preload/index.d'
+import { useT, type TFunc } from '../i18n'
+import { champIcon, fmtDate, fmtDuration, fmtNum } from '../lib'
 import ItemRow from './ItemRow'
 
 function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
@@ -117,6 +117,108 @@ function Scoreboard({
   )
 }
 
+function Highlights({
+  events,
+  players,
+  ddragon,
+  mePid,
+  t
+}: {
+  events: TimelineEvent[]
+  players: ScorePlayer[]
+  ddragon: DdragonInfo | null
+  mePid: number
+  t: TFunc
+}): JSX.Element {
+  const version = ddragon?.version ?? ''
+  const byPid = new Map(players.map((p) => [p.pid, p]))
+  const cIcon = (pid: number): string | null =>
+    champIcon(version, ddragon?.champions?.[byPid.get(pid)?.championId ?? -1])
+  const cName = (pid: number): string =>
+    ddragon?.champNames?.[byPid.get(pid)?.championId ?? -1] ?? '—'
+  const teamColor = (pid: number): string =>
+    byPid.get(pid)?.teamId === 200 ? 'text-loss' : 'text-teal'
+
+  const involved = (e: TimelineEvent): boolean =>
+    e.killerId === mePid || e.victimId === mePid || (e.assists?.includes(mePid) ?? false)
+  const shown = events.filter((e) => e.kind !== 'kill' || e.firstBlood || involved(e))
+
+  const monster = (e: TimelineEvent): { emoji: string; label: string } => {
+    if (e.monster === 'BARON_NASHOR') return { emoji: '🟣', label: t('detail.baron') }
+    if ((e.monster || '').includes('HERALD')) return { emoji: '👁', label: t('detail.herald') }
+    const el = (e.subType || '').replace(/_?DRAGON.*/i, '').replace(/_/g, ' ').trim().toLowerCase()
+    return { emoji: '🐉', label: el ? `${t('detail.dragon')} · ${el}` : t('detail.dragon') }
+  }
+  const lane = (l?: string): string =>
+    (l || '').replace('_LANE', '').replace('TOP', 'top').replace('MID', 'mid').replace('BOT', 'bot').toLowerCase()
+
+  return (
+    <div className="flex max-h-72 flex-col gap-0.5 overflow-y-auto pr-1">
+      {shown.map((e, i) => {
+        const time = fmtDuration(Math.round(e.t / 1000))
+        if (e.kind === 'kill') {
+          const hasKiller = e.killerId > 0
+          return (
+            <div
+              key={i}
+              className={
+                'flex items-center gap-2 rounded px-2 py-1 text-xs ' +
+                (involved(e) ? 'bg-teal/10' : '')
+              }
+            >
+              <span className="w-10 shrink-0 font-mono text-mute">{time}</span>
+              {e.firstBlood && (
+                <span className="shrink-0 rounded bg-gold/20 px-1.5 py-0.5 text-[10px] font-semibold text-gold">
+                  {t('detail.firstBlood')}
+                </span>
+              )}
+              {hasKiller && cIcon(e.killerId) && (
+                <img src={cIcon(e.killerId) as string} alt="" className="h-5 w-5 rounded" />
+              )}
+              <span className={teamColor(e.killerId) + ' font-medium'}>
+                {hasKiller ? cName(e.killerId) : '☠'}
+              </span>
+              <span className="text-mute">{t('detail.killed')}</span>
+              <span className={teamColor(e.victimId ?? 0) + ' font-medium'}>
+                {cName(e.victimId ?? 0)}
+              </span>
+              {cIcon(e.victimId ?? 0) && (
+                <img
+                  src={cIcon(e.victimId ?? 0) as string}
+                  alt=""
+                  className="h-5 w-5 rounded opacity-70"
+                />
+              )}
+              {e.killerId === mePid && <span className="text-[10px] text-teal">★</span>}
+            </div>
+          )
+        }
+        if (e.kind === 'monster') {
+          const mo = monster(e)
+          return (
+            <div key={i} className="flex items-center gap-2 rounded px-2 py-1 text-xs">
+              <span className="w-10 shrink-0 font-mono text-mute">{time}</span>
+              <span>{mo.emoji}</span>
+              <span className={teamColor(e.killerId) + ' font-medium capitalize'}>{mo.label}</span>
+            </div>
+          )
+        }
+        const isInhib = (e.building || '').includes('INHIBITOR')
+        const label = `${isInhib ? t('detail.inhibitor') : t('detail.tower')}${
+          lane(e.lane) ? ` · ${lane(e.lane)}` : ''
+        }`
+        return (
+          <div key={i} className="flex items-center gap-2 rounded px-2 py-1 text-xs">
+            <span className="w-10 shrink-0 font-mono text-mute">{time}</span>
+            <span>{isInhib ? '🔺' : '🏰'}</span>
+            <span className={teamColor(e.killerId) + ' font-medium'}>{label}</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function MatchDetail({
   match,
   ddragon,
@@ -135,21 +237,21 @@ export default function MatchDetail({
     m.deaths > 0 ? ((m.kills + m.assists) / m.deaths).toFixed(2) : (m.kills + m.assists).toFixed(2)
 
   const [tab, setTab] = useState<'perso' | 'full'>('perso')
-  const [build, setBuild] = useState<ItemPurchase[] | null>(null)
-  const [loadingBuild, setLoadingBuild] = useState(true)
+  const [events, setEvents] = useState<TimelineEvent[] | null>(null)
+  const [loadingTl, setLoadingTl] = useState(true)
 
   useEffect(() => {
     let alive = true
-    setLoadingBuild(true)
+    setLoadingTl(true)
     window.api
-      .getMatchTimeline(m.gameId, m.participantId)
-      .then((b) => alive && setBuild(b))
-      .catch(() => alive && setBuild([]))
-      .finally(() => alive && setLoadingBuild(false))
+      .getMatchTimeline(m.gameId)
+      .then((e) => alive && setEvents(e))
+      .catch(() => alive && setEvents([]))
+      .finally(() => alive && setLoadingTl(false))
     return () => {
       alive = false
     }
-  }, [m.gameId, m.participantId])
+  }, [m.gameId])
 
   const multis: string[] = []
   if (d) {
@@ -242,39 +344,21 @@ export default function MatchDetail({
               <div className="mb-2 flex items-center gap-2">
                 <span className="h-3 w-0.5 rounded bg-gold" />
                 <span className="text-[11px] uppercase tracking-wide text-mute">
-                  {t('detail.buildOrder')}
+                  {t('detail.highlights')}
                 </span>
               </div>
-              {loadingBuild ? (
+              {loadingTl ? (
                 <div className="text-sm text-mute">{t('detail.buildLoading')}</div>
-              ) : build && build.length > 0 ? (
-                <div className="flex items-start gap-1 overflow-x-auto pb-2">
-                  {build.map((p, i) => {
-                    const url = itemIcon(version, p.itemId)
-                    return (
-                      <div key={i} className="flex items-center gap-1">
-                        <div className="flex shrink-0 flex-col items-center gap-1">
-                          {url ? (
-                            <img
-                              src={url}
-                              alt=""
-                              title={ddragon?.items?.[p.itemId]?.name ?? ''}
-                              className="h-9 w-9 rounded border border-edge"
-                            />
-                          ) : (
-                            <div className="h-9 w-9 rounded border border-edge bg-night" />
-                          )}
-                          <span className="font-mono text-[10px] text-mute">
-                            {fmtDuration(Math.round(p.timestamp / 1000))}
-                          </span>
-                        </div>
-                        {i < build.length - 1 && <span className="pb-4 text-edge">›</span>}
-                      </div>
-                    )
-                  })}
-                </div>
+              ) : events && events.length > 0 && m.players && m.players.length > 0 ? (
+                <Highlights
+                  events={events}
+                  players={m.players}
+                  ddragon={ddragon}
+                  mePid={m.participantId}
+                  t={t}
+                />
               ) : (
-                <div className="text-sm text-mute">{t('detail.buildNA')}</div>
+                <div className="text-sm text-mute">{t('detail.noHighlights')}</div>
               )}
             </div>
 

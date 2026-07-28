@@ -101,6 +101,12 @@ export function profileIcon(version: string, iconId: number): string | null {
   return `${DD}/${version}/img/profileicon/${iconId}.png`
 }
 
+/** Champion loading-screen art (the vertical card), for a given skin. Not versioned. */
+export function loadingArt(imageId: string | undefined, skinId = 0): string | null {
+  if (!imageId) return null
+  return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${imageId}_${skinId}.jpg`
+}
+
 export function fmtRank(
   tier: string | null,
   division: string | null,

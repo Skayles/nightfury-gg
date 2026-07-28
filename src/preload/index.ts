@@ -24,8 +24,10 @@ const api = {
     ipcRenderer.on('summoner:updated', h)
     return () => ipcRenderer.removeListener('summoner:updated', h)
   },
-  getMatchTimeline: (gameId: number, participantId: number) =>
-    ipcRenderer.invoke('match:timeline', gameId, participantId),
+  getMatchTimeline: (gameId: number) => ipcRenderer.invoke('match:timeline', gameId),
+  getFriends: () => ipcRenderer.invoke('friends:get'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open', url),
   getLiveGame: () => ipcRenderer.invoke('live:get'),
   scoutLiveGame: (players: { puuid: string; championImage: string }[], queueId: number) =>
     ipcRenderer.invoke('live:scout', players, queueId),

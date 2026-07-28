@@ -7,14 +7,17 @@ export type Tab = 'live' | 'profile' | 'export' | 'options'
 export default function Sidebar({
   tab,
   onTab,
-  lcu
+  lcu,
+  onOpenFriends
 }: {
   tab: Tab
   onTab: (t: Tab) => void
   lcu: LcuStatus
+  onOpenFriends: () => void
 }): JSX.Element {
   const t = useT()
   const live = lcu.state === 'in-game'
+  const connected = lcu.state === 'connected' || lcu.state === 'in-game'
 
   const items: { id: Tab; label: string; hint: string }[] = [
     { id: 'live', label: t('nav.live'), hint: t('nav.live.hint') },
@@ -57,6 +60,14 @@ export default function Sidebar({
           )
         })}
       </nav>
+
+      <button
+        onClick={onOpenFriends}
+        className="mx-3 mb-4 mt-auto flex items-center gap-2 rounded-md border border-edge px-3 py-2 text-left text-sm font-medium text-slate-300 transition-colors hover:border-teal hover:text-teal"
+      >
+        <span className={'h-2 w-2 rounded-full ' + (connected ? 'bg-teal' : 'bg-mute')} />
+        {t('friends.title')}
+      </button>
     </aside>
   )
 }

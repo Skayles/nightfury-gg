@@ -63,6 +63,7 @@ export interface MatchRecord {
 export interface DdragonInfo {
   version: string
   champions: Record<number, string>
+  champNames: Record<number, string>
   items: Record<number, { name: string; description: string }>
 }
 
@@ -81,9 +82,25 @@ export interface ItemPurchase {
   timestamp: number
 }
 
+export interface TimelineEvent {
+  t: number
+  kind: 'kill' | 'monster' | 'building'
+  killerId: number
+  victimId?: number
+  assists?: number[]
+  monster?: string
+  subType?: string
+  building?: string
+  lane?: string
+  teamId?: number
+  firstBlood?: boolean
+}
+
 export interface LivePlayer {
   name: string
   championImage: string
+  championName: string
+  skinId: number
   puuid: string
   rankTier?: string | null
   rankDivision?: string | null
@@ -150,7 +167,22 @@ export type ExportStatus =
   | { state: 'ok'; added: number }
   | { state: 'error'; message: string }
 
+export interface Friend {
+  id: string
+  name: string
+  tagLine: string
+  iconId: number
+  availability: string
+  game: string
+  status: string
+  championId: number
+  note: string
+}
+
 export interface Api {
+  getFriends(): Promise<Friend[]>
+  checkUpdate(): Promise<{ updateAvailable: boolean; latest: string; url: string }>
+  openExternal(url: string): Promise<void>
   listMatches(): Promise<MatchRecord[]>
   allMatches(): Promise<MatchRecord[]>
   refreshMatches(): Promise<MatchRecord[]>
@@ -164,7 +196,7 @@ export interface Api {
   getSummoner(): Promise<SummonerProfile | null>
   getLcuStatus(): Promise<LcuStatus>
   onSummonerUpdated(cb: (p: SummonerProfile) => void): () => void
-  getMatchTimeline(gameId: number, participantId: number): Promise<ItemPurchase[]>
+  getMatchTimeline(gameId: number): Promise<TimelineEvent[]>
   getLiveGame(): Promise<LiveGame | null>
   scoutLiveGame(
     players: { puuid: string; championImage: string }[],

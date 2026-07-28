@@ -24,6 +24,39 @@ import { loadDdragon, ddragonInfo, championName, championIdFromImage } from './d
 import { initDiscord, setPresence, stopDiscord } from './discord'
 
 let mainWindow: BrowserWindow | null = null
+
+const GITHUB_REPO = 'Skayles/nightfury-gg'
+
+/** True if `latest` (e.g. "v1.0.2") is a higher version than `current`. */
+function isNewerVersion(latest: string, current: string): boolean {
+  const a = latest.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0)
+  const b = current.replace(/^v/i, '').split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const x = a[i] || 0
+    const y = b[i] || 0
+    if (x > y) return true
+    if (x < y) return false
+  }
+  return false
+}
+
+/** Check GitHub for a newer release (keyless, public API). */
+async function checkForUpdate(): Promise<{ updateAvailable: boolean; latest: string; url: string }> {
+  const fallback = { updateAvailable: false, latest: '', url: '' }
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { 'User-Agent': 'Nightfury.gg', Accept: 'application/vnd.github+json' }
+    })
+    if (!res.ok) return fallback
+    const data: any = await res.json()
+    const latest = String(data.tag_name || '')
+    const url = String(data.html_url || `https://github.com/${GITHUB_REPO}/releases`)
+    if (!latest) return fallback
+    return { updateAvailable: isNewerVersion(latest, app.getVersion()), latest, url }
+  } catch {
+    return fallback
+  }
+}
 let lcu: LcuService
 let summonerProfile: SummonerProfile | null = null
 let lastLcuState = 'connecting'
@@ -184,9 +217,10 @@ function registerIpc(): void {
   ipcMain.handle('ddragon:info', () => ddragonInfo())
   ipcMain.handle('summoner:get', () => summonerProfile)
   ipcMain.handle('lcu:status:get', () => lastStatus)
-  ipcMain.handle('match:timeline', (_e, gameId: number, participantId: number) =>
-    lcu.fetchItemTimeline(gameId, participantId)
-  )
+  ipcMain.handle('match:timeline', (_e, gameId: number) => lcu.fetchTimeline(gameId))
+  ipcMain.handle('friends:get', () => lcu.fetchFriends())
+  ipcMain.handle('update:check', () => checkForUpdate())
+  ipcMain.handle('shell:open', (_e, url: string) => shell.openExternal(url))
   ipcMain.handle('live:get', () => lcu.fetchLiveGame())
   ipcMain.handle(
     'live:scout',

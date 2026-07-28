@@ -54,6 +54,15 @@ export const translations: Record<Lang, Dict> = {
     'detail.buildOrder': 'Ordre d’achat des objets',
     'detail.buildLoading': 'Chargement de la timeline…',
     'detail.buildNA': 'Timeline d’objets indisponible pour cette partie.',
+    'detail.highlights': 'Faits marquants',
+    'detail.firstBlood': 'First Blood',
+    'detail.killed': 'a tué',
+    'detail.dragon': 'Dragon',
+    'detail.baron': 'Baron Nashor',
+    'detail.herald': 'Héraut',
+    'detail.tower': 'Tour',
+    'detail.inhibitor': 'Inhibiteur',
+    'detail.noHighlights': 'Aucun fait marquant pour cette partie.',
     'detail.combat': 'Combat',
     'detail.farm': 'Farm & économie',
     'detail.dmgChamps': 'Dégâts aux champions',
@@ -145,7 +154,25 @@ export const translations: Record<Lang, Dict> = {
     'options.freeSpace': 'Libérer de l’espace',
     'options.freeSpaceHint': 'Ton historique s’accumule sans limite. Ce bouton supprime les parties de plus d’un mois pour libérer de l’espace disque — ton historique récent est conservé.',
     'options.freeSpaceDone': '{n} partie(s) supprimée(s).',
-    'options.freeSpaceNone': 'Aucune partie de plus d’un mois.'
+    'options.freeSpaceNone': 'Aucune partie de plus d’un mois.',
+    'friends.title': 'Amis',
+    'friends.all': 'Tous',
+    'friends.lol': 'LoL',
+    'friends.tft': 'TFT',
+    'friends.valorant': 'Valorant',
+    'friends.lor': 'LoR',
+    'friends.wildrift': 'Wild Rift',
+    'friends.empty': 'Aucun ami dans ce filtre.',
+    'friends.needClient': 'Lance League pour voir ta liste d’amis.',
+    'friends.online': 'En ligne',
+    'friends.away': 'Absent',
+    'friends.mobile': 'Sur mobile',
+    'friends.offline': 'Hors ligne',
+    'friends.inGame': 'En partie',
+    'friends.champSelect': 'Sélection des champions',
+    'friends.inQueue': 'File d’attente',
+    'update.available': 'Nouvelle version disponible : {v}',
+    'update.download': 'Télécharger'
   },
 
   en: {
@@ -197,6 +224,15 @@ export const translations: Record<Lang, Dict> = {
     'detail.buildOrder': 'Item build order',
     'detail.buildLoading': 'Loading timeline…',
     'detail.buildNA': 'Item timeline unavailable for this game.',
+    'detail.highlights': 'Highlights',
+    'detail.firstBlood': 'First Blood',
+    'detail.killed': 'killed',
+    'detail.dragon': 'Dragon',
+    'detail.baron': 'Baron Nashor',
+    'detail.herald': 'Rift Herald',
+    'detail.tower': 'Tower',
+    'detail.inhibitor': 'Inhibitor',
+    'detail.noHighlights': 'No highlights for this game.',
     'detail.combat': 'Combat',
     'detail.farm': 'Farm & economy',
     'detail.dmgChamps': 'Damage to champions',
@@ -288,7 +324,25 @@ export const translations: Record<Lang, Dict> = {
     'options.freeSpace': 'Free up space',
     'options.freeSpaceHint': 'Your history grows without limit. This button removes games older than one month to free disk space — your recent history is kept.',
     'options.freeSpaceDone': '{n} game(s) removed.',
-    'options.freeSpaceNone': 'No games older than one month.'
+    'options.freeSpaceNone': 'No games older than one month.',
+    'friends.title': 'Friends',
+    'friends.all': 'All',
+    'friends.lol': 'LoL',
+    'friends.tft': 'TFT',
+    'friends.valorant': 'Valorant',
+    'friends.lor': 'LoR',
+    'friends.wildrift': 'Wild Rift',
+    'friends.empty': 'No friends in this filter.',
+    'friends.needClient': 'Launch League to see your friends list.',
+    'friends.online': 'Online',
+    'friends.away': 'Away',
+    'friends.mobile': 'On mobile',
+    'friends.offline': 'Offline',
+    'friends.inGame': 'In game',
+    'friends.champSelect': 'Champ select',
+    'friends.inQueue': 'In queue',
+    'update.available': 'New version available: {v}',
+    'update.download': 'Download'
   }
 }
 
@@ -300,8 +354,7 @@ export function useLang(): Lang {
 
 export type TFunc = (key: string, vars?: Record<string, string | number>) => string
 
-export function useT(): TFunc {
-  const lang = useContext(LangContext)
+export function makeT(lang: Lang): TFunc {
   return (key, vars) => {
     let s = translations[lang][key] ?? translations.fr[key] ?? key
     if (vars) {
@@ -311,4 +364,9 @@ export function useT(): TFunc {
     }
     return s
   }
+}
+
+export function useT(): TFunc {
+  const lang = useContext(LangContext)
+  return makeT(lang)
 }

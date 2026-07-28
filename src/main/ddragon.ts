@@ -78,7 +78,8 @@ export function championName(id: number): string {
 export function ddragonInfo(): {
   version: string
   champions: Record<number, string>
+  champNames: Record<number, string>
   items: Record<number, { name: string; description: string }>
 } {
-  return { version, champions: images, items }
+  return { version, champions: images, champNames: names, items }
 }

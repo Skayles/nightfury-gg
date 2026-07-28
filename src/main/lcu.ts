@@ -6,7 +6,7 @@ import {
   Credentials,
   LeagueWebSocket
 } from 'league-connect'
-import { parseGame, MatchRecord, ItemPurchase, LiveGame, ScoutResult, ScoutDiag } from './stats'
+import { parseGame, MatchRecord, TimelineEvent, LiveGame, ScoutResult, ScoutDiag, Friend } from './stats'
 import { championImageFromLive, ddragonInfo } from './ddragon'
 
 type SgpCtx = {
@@ -242,6 +242,8 @@ export class LcuService {
       return {
         name: p.riotIdGameName || p.summonerName || p.riotId || '',
         championImage,
+        championName: p.championName || '',
+        skinId: Number(p.skinID ?? p.skinId ?? 0),
         puuid: puuidByImage.get(championImage) || ''
       }
     }
@@ -497,7 +499,56 @@ export class LcuService {
   }
 
   /** Item purchase order (reconciled with undos) for one game + participant. */
-  async fetchItemTimeline(gameId: number, participantId: number): Promise<ItemPurchase[]> {
+  /** The current player's Riot friends list (keyless, from the LCU chat). */
+  async fetchFriends(): Promise<Friend[]> {
+    if (!this.creds) return []
+    let list: any
+    try {
+      list = await this.request<any>('GET', '/lol-chat/v1/friends')
+    } catch {
+      return []
+    }
+    if (!Array.isArray(list)) return []
+    return list.map((f: any): Friend => {
+      let lol: any = f.lol
+      if (typeof lol === 'string') {
+        try {
+          lol = JSON.parse(lol)
+        } catch {
+          lol = {}
+        }
+      }
+      lol = lol || {}
+      const product = String(f.productId || '').toLowerCase()
+      const avail = String(f.availability || 'offline')
+      let game = 'other'
+      if (avail === 'offline') game = 'offline'
+      else if (product.includes('valorant')) game = 'valorant'
+      else if (product === 'bacon' || product.includes('runeterra')) game = 'lor'
+      else if (product.includes('wildrift') || product.includes('wild_rift')) game = 'wildrift'
+      else if (product.includes('league') || product === 'lol') {
+        const mode = String(lol.gameMode || '')
+        const q = Number(lol.queueId || 0)
+        game = mode === 'TFT' || (q >= 1090 && q <= 1200) ? 'tft' : 'lol'
+      }
+      return {
+        id: String(f.puuid || f.summonerId || f.id || f.name || Math.random()),
+        name: f.gameName || f.name || '',
+        tagLine: f.gameTag || '',
+        iconId: Number(f.icon || 0),
+        availability: avail,
+        game,
+        status: String(lol.gameStatus || ''),
+        championId: Number(lol.championId || 0),
+        note: String(f.statusMessage || f.note || '')
+      }
+    })
+  }
+
+  /** Highlight events (kills, objectives, buildings) of a game, from the LCU
+   *  timeline. Item purchases aren't included by the client, so we surface the
+   *  game's key moments instead. */
+  async fetchTimeline(gameId: number): Promise<TimelineEvent[]> {
     if (!this.creds) return []
     let data: any
     try {
@@ -510,22 +561,40 @@ export class LcuService {
     for (const f of frames) for (const e of f.events ?? []) events.push(e)
     events.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0))
 
-    const build: ItemPurchase[] = []
+    const out: TimelineEvent[] = []
+    let firstKill = true
     for (const e of events) {
-      if (e.participantId !== participantId) continue
-      if (e.type === 'ITEM_PURCHASED' && e.itemId) {
-        build.push({ itemId: e.itemId, timestamp: e.timestamp ?? 0 })
-      } else if (e.type === 'ITEM_UNDO') {
-        const undone = e.beforeId || e.afterId
-        for (let i = build.length - 1; i >= 0; i--) {
-          if (build[i].itemId === undone) {
-            build.splice(i, 1)
-            break
-          }
-        }
+      const t = e.timestamp ?? 0
+      if (e.type === 'CHAMPION_KILL') {
+        out.push({
+          t,
+          kind: 'kill',
+          killerId: e.killerId ?? 0,
+          victimId: e.victimId ?? 0,
+          assists: e.assistingParticipantIds ?? [],
+          firstBlood: firstKill
+        })
+        firstKill = false
+      } else if (e.type === 'ELITE_MONSTER_KILL') {
+        out.push({
+          t,
+          kind: 'monster',
+          killerId: e.killerId ?? 0,
+          monster: e.monsterType || '',
+          subType: e.monsterSubType || ''
+        })
+      } else if (e.type === 'BUILDING_KILL') {
+        out.push({
+          t,
+          kind: 'building',
+          killerId: e.killerId ?? 0,
+          building: e.buildingType || '',
+          lane: e.laneType || '',
+          teamId: e.teamId ?? 0
+        })
       }
     }
-    return build
+    return out
   }
 
   private async request<T>(method: string, url: string): Promise<T> {

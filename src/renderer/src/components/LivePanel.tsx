@@ -1,94 +1,81 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type {
   LcuStatus,
   AppSettings,
   LiveGame,
-  DdragonInfo,
   LivePlayer,
   ScoutResult,
   ScoutDiag
 } from '../../../preload/index.d'
 import { useT } from '../i18n'
-import { champIcon, fmtRank } from '../lib'
+import { loadingArt, fmtRank } from '../lib'
 import Toggle from './Toggle'
 
-function Stat({ value, sub }: { value: string; sub: string }): JSX.Element {
-  return (
-    <div className="text-right leading-tight">
-      <div className="text-[13px] font-semibold text-slate-100">{value}</div>
-      <div className="text-[10px] text-mute">{sub}</div>
-    </div>
-  )
-}
-
-function PlayerCard({
+function LoadingCard({
   p,
   s,
-  ddragon,
   side
 }: {
   p: LivePlayer
   s?: ScoutResult
-  ddragon: DdragonInfo | null
   side: 'blue' | 'red'
 }): JSX.Element {
   const t = useT()
-  const version = ddragon?.version ?? ''
-  const icon = champIcon(version, p.championImage)
-  const accent = side === 'blue' ? 'border-l-teal' : 'border-l-loss'
+  const art = loadingArt(p.championImage, p.skinId)
   const rank = fmtRank(s?.rankTier ?? null, s?.rankDivision ?? null, s?.rankLp ?? null)
-  const hasWr = s?.winrate != null
-  const hasChamp = s?.champGames != null
+  const topBorder = side === 'blue' ? 'bg-teal' : 'bg-loss'
   return (
-    <div className={'flex items-center gap-3 rounded-lg border-l-2 bg-panel px-3 py-2 ' + accent}>
-      {icon ? (
-        <img src={icon} alt="" className="h-11 w-11 rounded-md ring-1 ring-edge" />
+    <div className="relative h-full min-h-0 overflow-hidden rounded-lg ring-1 ring-edge">
+      <span className={'absolute inset-x-0 top-0 z-10 h-1 ' + topBorder} />
+      {art ? (
+        <img
+          src={art}
+          alt={p.championName}
+          className="absolute inset-0 h-full w-full object-cover object-top"
+          onError={(e) => {
+            const img = e.currentTarget
+            if (!img.dataset.fb) {
+              img.dataset.fb = '1'
+              img.src = loadingArt(p.championImage, 0) || ''
+            }
+          }}
+        />
       ) : (
-        <div className="h-11 w-11 rounded-md bg-panel2" />
+        <div className="absolute inset-0 bg-panel2" />
       )}
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-slate-100">{p.name || '—'}</div>
-        <div className={'text-[11px] ' + (rank ? 'text-gold' : 'text-mute')}>
+      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pb-2 pt-8">
+        <div className="truncate text-sm font-semibold text-white">{p.name || '—'}</div>
+        <div className="truncate text-[11px] text-slate-300">{p.championName}</div>
+        <div className={'truncate text-[11px] ' + (rank ? 'text-gold' : 'text-slate-400')}>
           {rank || t('profile.unranked')}
         </div>
       </div>
-      {hasWr && (
-        <Stat value={`${s?.winrate}%`} sub={s?.games != null ? `${s.games}G` : 'WR'} />
-      )}
-      {hasChamp && (
-        <div className="flex items-center gap-1.5" title={t('live.onChamp')}>
-          {icon ? <img src={icon} alt="" className="h-5 w-5 rounded" /> : null}
-          <Stat value={`${s?.champWinrate}%`} sub={`${s?.champGames}G`} />
-        </div>
-      )}
     </div>
   )
 }
 
-function TeamColumn({
+function Team({
   label,
   color,
   players,
   scout,
-  ddragon,
   side
 }: {
   label: string
   color: string
   players: LivePlayer[]
   scout: Record<string, ScoutResult>
-  ddragon: DdragonInfo | null
   side: 'blue' | 'red'
 }): JSX.Element {
   return (
-    <div>
-      <div className="mb-2 flex items-center gap-2">
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="mb-2 flex shrink-0 items-center gap-2">
         <span className={'h-2.5 w-2.5 rounded-full ' + color} />
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-300">{label}</span>
       </div>
-      <div className="flex flex-col gap-2">
+      <div className="grid min-h-0 flex-1 grid-cols-5 gap-2.5">
         {players.map((p, i) => (
-          <PlayerCard key={i} p={p} s={scout[p.puuid]} ddragon={ddragon} side={side} />
+          <LoadingCard key={i} p={p} s={scout[p.puuid]} side={side} />
         ))}
       </div>
     </div>
@@ -106,18 +93,11 @@ export default function LivePanel({
 }): JSX.Element {
   const t = useT()
   const inGame = lcu.state === 'in-game'
-  const [ddragon, setDdragon] = useState<DdragonInfo | null>(null)
   const [game, setGame] = useState<LiveGame | null>(null)
   const [loading, setLoading] = useState(false)
   const [scout, setScout] = useState<Record<string, ScoutResult>>({})
   const [scouting, setScouting] = useState(false)
   const [diag, setDiag] = useState<ScoutDiag | null>(null)
-
-  useEffect(() => {
-    window.api.getDdragonInfo().then(setDdragon).catch(() => setDdragon(null))
-    const offDd = window.api.onDdragonUpdated((info) => setDdragon(info as DdragonInfo))
-    return () => offDd()
-  }, [])
 
   useEffect(() => {
     if (!inGame || !settings.scoutingEnabled) {
@@ -143,7 +123,6 @@ export default function LivePanel({
     }
   }, [inGame, settings.scoutingEnabled])
 
-  // Stable key for the current game (its players) so scouting runs once per game.
   const gameKey = useMemo(
     () => (game ? [...game.teamOne, ...game.teamTwo].map((p) => p.puuid).join(',') : ''),
     [game]
@@ -154,10 +133,7 @@ export default function LivePanel({
     const players = [...game.teamOne, ...game.teamTwo]
       .filter((p) => p.puuid)
       .map((p) => ({ puuid: p.puuid, championImage: p.championImage }))
-    if (!players.length) {
-      setDiag({ ok:false, tokenFound:false, baseFound:false, historyOk:false, base:'', region:'', error:'puuid indisponible', sample:'' })
-      return
-    }
+    if (!players.length) return
     let alive = true
     setScouting(true)
     window.api
@@ -169,7 +145,7 @@ export default function LivePanel({
         setScout(m)
         setDiag(diag)
       })
-      .catch(() => alive && setDiag({ ok:false, tokenFound:false, baseFound:false, historyOk:false, base:'', region:'', error:t('live.scoutFail'), sample:'' }))
+      .catch(() => {})
       .finally(() => alive && setScouting(false))
     return () => {
       alive = false
@@ -182,9 +158,17 @@ export default function LivePanel({
     onChanged()
   }
 
+  const placeholder = (node: ReactNode): JSX.Element => (
+    <div className="flex min-h-0 flex-1 items-center justify-center">
+      <div className="rounded-lg border border-dashed border-edge px-6 py-16 text-center text-mute">
+        {node}
+      </div>
+    </div>
+  )
+
   return (
-    <section className="max-w-4xl">
-      <header className="mb-5 flex items-center justify-between">
+    <section className="flex h-full flex-col">
+      <header className="mb-4 flex shrink-0 items-center justify-between">
         <div>
           <h1 className="font-display text-2xl text-slate-100">{t('nav.live')}</h1>
           <p className="text-sm text-mute">{t('live.subtitle')}</p>
@@ -196,44 +180,38 @@ export default function LivePanel({
       </header>
 
       {!settings.scoutingEnabled ? (
-        <div className="rounded-lg border border-dashed border-edge px-6 py-16 text-center text-mute">
-          {t('live.disabled')}
-        </div>
+        placeholder(t('live.disabled'))
       ) : !inGame ? (
-        <div className="rounded-lg border border-dashed border-edge px-6 py-16 text-center text-mute">
-          <div className="mb-2 text-sm font-medium text-slate-300">{t('live.waiting')}</div>
-          <p className="mx-auto max-w-md text-sm text-mute">{t('live.desc')}</p>
-        </div>
+        placeholder(
+          <>
+            <div className="mb-2 text-sm font-medium text-slate-300">{t('live.waiting')}</div>
+            <p className="mx-auto max-w-md text-sm text-mute">{t('live.desc')}</p>
+          </>
+        )
       ) : game ? (
-        <>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-            <TeamColumn
-              label={t('live.teamBlue')}
-              color="bg-teal"
-              players={game.teamOne}
-              scout={scout}
-              ddragon={ddragon}
-              side="blue"
-            />
-            <TeamColumn
-              label={t('live.teamRed')}
-              color="bg-loss"
-              players={game.teamTwo}
-              scout={scout}
-              ddragon={ddragon}
-              side="red"
-            />
-          </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <Team
+            label={t('live.teamBlue')}
+            color="bg-teal"
+            players={game.teamOne}
+            scout={scout}
+            side="blue"
+          />
+          <Team
+            label={t('live.teamRed')}
+            color="bg-loss"
+            players={game.teamTwo}
+            scout={scout}
+            side="red"
+          />
           {(scouting || (diag && !diag.historyOk)) && (
-            <p className="mt-5 text-center text-[11px] text-mute">
+            <p className="shrink-0 text-center text-[11px] text-mute">
               {scouting ? t('live.scouting2') : t('live.rankOnly')}
             </p>
           )}
-        </>
-      ) : (
-        <div className="rounded-lg border border-teal/40 bg-teal/5 px-6 py-16 text-center text-mute">
-          {loading ? t('live.loadingGame') : t('live.detected')}
         </div>
+      ) : (
+        placeholder(loading ? t('live.loadingGame') : t('live.detected'))
       )}
     </section>
   )

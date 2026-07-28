@@ -95,9 +95,25 @@ export interface ItemPurchase {
   timestamp: number // ms into the game
 }
 
+export interface TimelineEvent {
+  t: number // timestamp in ms
+  kind: 'kill' | 'monster' | 'building'
+  killerId: number
+  victimId?: number
+  assists?: number[]
+  monster?: string // DRAGON | BARON_NASHOR | RIFTHERALD
+  subType?: string // dragon element
+  building?: string // TOWER_BUILDING | INHIBITOR_BUILDING
+  lane?: string // TOP_LANE | MID_LANE | BOT_LANE
+  teamId?: number
+  firstBlood?: boolean
+}
+
 export interface LivePlayer {
   name: string
   championImage: string
+  championName: string
+  skinId: number
   puuid: string
   // Filled by the (keyless SGP) scouting pass — null until available.
   rankTier?: string | null
@@ -112,6 +128,18 @@ export interface LiveGame {
   teamOne: LivePlayer[]
   teamTwo: LivePlayer[]
   queueId: number
+}
+
+export interface Friend {
+  id: string
+  name: string
+  tagLine: string
+  iconId: number
+  availability: string // chat | away | dnd | mobile | offline
+  game: string // lol | tft | valorant | lor | wildrift | other | offline
+  status: string // gameStatus for LoL (inGame, championSelect, inQueue…)
+  championId: number
+  note: string
 }
 
 export interface ScoutResult {
