@@ -44,12 +44,15 @@ reads as a stats companion.
   result, period), aggregate stats (winrate, KDA, CS/min, KP, vision) and
   per-champion breakdowns. A summoner header shows your icon, level and rank.
   Click any match to open it in two tabs:
-  - **My game** — your full detailed stats plus an **item build timeline**
-    (what you bought and when).
+  - **My game** — your full detailed stats plus a **highlights timeline** (first
+    blood, your kills & deaths, dragons, Baron, towers…).
   - **Scoreboard** — all 10 players with champion, KDA, CS, damage, gold and
     their **items** (hover for full item tooltips).
 - **Live / Lobby** — while you're in a game, see the **10 players** with their
-  champion, Riot ID and **rank** — fetched keyless from your client session.
+  champion, Riot ID and **rank** — fetched keyless from your client session and
+  presented like a loading screen.
+- **Friends list** — a side drawer showing your Riot friends, their status and
+  which game they're on, with the champion for those in a LoL game.
 - **Google Sheet export** — send your history to a Google Sheet with **no Google
   login**: you paste a small Apps Script URL bound to *your* sheet. Manual or
   automatic (on game end), with an export filter, plus a zero-config **CSV** export.
@@ -152,14 +155,14 @@ Released under the [MIT License](LICENSE).
 
 ### C'est quoi Nightfury.gg ?
 
-**Nightfury.gg** est un compagnon de bureau pour League of Legends qui lit tes
+**Nightfury.gg** est un compagnon de bureau pour League of Legends qui lit vos
 données **directement depuis le client du jeu** (le LCU) — donc **aucune clé API
-Riot, aucune connexion, aucun secret**. Tu le lances pendant que League tourne,
-et ça marche.
+Riot, aucune connexion, aucun secret**. Vous le lancez pendant que League tourne,
+et ça fonctionne.
 
 Le nom est un clin d'œil à *Krokmou* (Toothless), le dragon **Night Fury** — et le
 suffixe `.gg` reprend la convention des outils LoL (op.gg, u.gg…), pour qu'on
-comprenne tout de suite que c'est un compagnon de stats.
+comprenne tout de suite qu'il s'agit d'un compagnon de stats.
 
 > Conçu pour être partagé publiquement : **aucun secret dans le code**, aucun
 > accès au compte de qui que ce soit. Chaque utilisateur reste maître de ses données.
@@ -168,56 +171,60 @@ comprenne tout de suite que c'est un compagnon de stats.
 
 - **Profil** — un historique façon op.gg avec **filtres** (file, champion,
   résultat, période), des stats agrégées (winrate, KDA, CS/min, KP, vision) et
-  le détail par champion. Un en-tête affiche ton icône, ton niveau et ton rang.
-  Clique sur une partie pour l'ouvrir en deux onglets :
-  - **Ma partie** — toutes tes stats détaillées + la **frise d'achat des objets**
-    (ce que tu as acheté et quand).
+  le détail par champion. Un en-tête affiche votre icône, votre niveau et votre
+  rang. Cliquez sur une partie pour l'ouvrir en deux onglets :
+  - **Ma partie** — toutes vos stats détaillées + une **frise des faits marquants**
+    (first blood, vos kills et morts, dragons, Baron, tours…).
   - **Scoreboard** — les 10 joueurs avec champion, KDA, CS, dégâts, or et leurs
     **objets** (infobulle complète au survol).
-- **Live / Lobby** — pendant une partie, vois les **10 joueurs** avec leur
+- **Live / Lobby** — pendant une partie, affiche les **10 joueurs** avec leur
   champion, leur Riot ID et leur **rang** — récupéré en keyless via la session
-  de ton client.
-- **Export Google Sheet** — envoie ton historique vers un Google Sheet **sans
-  connexion Google** : tu colles une petite URL Apps Script rattachée à *ton*
+  de votre client, présenté comme un écran de chargement.
+- **Export Google Sheet** — envoie votre historique vers un Google Sheet **sans
+  connexion Google** : vous collez une petite URL Apps Script rattachée à *votre*
   sheet. Manuel ou automatique (fin de partie), avec un filtre d'export, plus un
   export **CSV** sans configuration.
+- **Liste d'amis** — un tiroir latéral montrant vos amis Riot, leur statut et le
+  jeu sur lequel ils sont, avec le champion pour ceux en partie sur LoL.
 - **Présence Discord** *(optionnelle, désactivée par défaut)* — affiche
-  « Nightfury.gg » dans ton statut Discord, avec ton champion et le chrono.
-- **Options** — change de langue (🇫🇷 / 🇬🇧), active/désactive la présence Discord,
-  et gère le stockage (libère de l'espace en supprimant les vieilles parties).
+  « Nightfury.gg » dans votre statut Discord, avec votre champion et le chrono.
+- **Options** — changez de langue (🇫🇷 / 🇬🇧), activez/désactivez la présence
+  Discord, et gérez le stockage (libérez de l'espace en supprimant les vieilles
+  parties).
 - **Bilingue** — interface complète français / anglais.
 
 ### Keyless par conception
 
-L'appli ne se connecte à aucun compte et ne détient aucun secret. Pour l'export
-Sheet, le flux est *ton appli → ton script → ton sheet* — rien ne transite par un
-tiers. Le rang des autres joueurs vient de **la session de ton propre client**, de
-la même façon que le client du jeu parle aux serveurs de Riot.
+L'application ne se connecte à aucun compte et ne détient aucun secret. Pour
+l'export Sheet, le flux est *votre application → votre script → votre sheet* —
+rien ne transite par un tiers. Le rang des autres joueurs provient de **la session
+de votre propre client**, de la même façon que le client du jeu communique avec
+les serveurs de Riot.
 
 > **À propos du winrate des joueurs :** afficher de façon fiable le winrate /
 > les stats par champion des *autres* joueurs nécessiterait un backend avec une
 > clé API **de production** Riot. Pour rester 100 % keyless, Nightfury.gg affiche
 > uniquement leur **rang**. Leurs stats complètes restent à un clic sur op.gg /
-> Porofessor si tu les veux.
+> Porofessor si vous les souhaitez.
 
 ### ⚠️ Avertissement SmartScreen / antivirus (Windows)
 
 Nightfury.gg est une application Electron open-source **non signée** (un certificat
 de signature coûte cher pour un projet gratuit). Comme l'exécutable est récent et
-non signé, Windows **SmartScreen** ou vos navigateur peuvent prévenir qu'il est
+non signé, Windows **SmartScreen** ou votre navigateur peuvent prévenir qu'il est
 « peu téléchargé » ou le signaler comme suspect. **C'est un avertissement de
-réputation/heuristique, pas un vrai virus** — l'app ne fait que des requêtes
-locales vers votre client League et vers les serveurs publics de Riot (Data
-Dragon), et ne détient aucun secret.
+réputation/heuristique, pas un vrai virus** — l'application ne fait que des
+requêtes locales vers votre client League et vers les serveurs publics de Riot
+(Data Dragon), et ne détient aucun secret.
 
 - Le code source complet est dans ce dépôt — vous pouvez vérifier exactement ce qu'il fait.
-- Tu peux analyser le fichier toi-même, par exemple sur [VirusTotal](https://www.virustotal.com/).
+- Vous pouvez analyser le fichier vous-même, par exemple sur [VirusTotal](https://www.virustotal.com/).
 
 Pour le lancer malgré tout :
 - **SmartScreen :** cliquez sur *Informations complémentaires* → *Exécuter quand même*.
 - **Téléchargement Chrome / Edge :** ouvrez le menu *⋯* à côté du téléchargement → *Conserver*.
 
-L'avertissement disparaît de lui-même à mesure que l'app est téléchargée et
+L'avertissement disparaît de lui-même à mesure que l'application est téléchargée et
 conservée par plus de monde — la réputation se construit avec le temps.
 
 ### Démarrage (développement)
@@ -244,19 +251,19 @@ nommé **Nightfury.gg**.
 <details>
 <summary><b>Présence Discord</b></summary>
 
-1. Crée une application sur <https://discord.com/developers/applications> nommée « Nightfury.gg ».
-2. Copie son **Application ID** dans `src/main/discord-config.ts` (ce n'est *pas* un secret).
-3. Dans **Rich Presence → Art Assets**, uploade l'icône dragon sous le nom `logo`.
-4. Active la présence Discord dans l'onglet **Options**.
+1. Créez une application sur <https://discord.com/developers/applications> nommée « Nightfury.gg ».
+2. Copiez son **Application ID** dans `src/main/discord-config.ts` (ce n'est *pas* un secret).
+3. Dans **Rich Presence → Art Assets**, uploadez l'icône dragon sous le nom `logo`.
+4. Activez la présence Discord dans l'onglet **Options**.
 </details>
 
 <details>
 <summary><b>Export Google Sheet</b></summary>
 
-1. Ouvre ton Google Sheet → **Extensions → Apps Script**.
-2. Colle le script affiché dans l'onglet **Google Sheet** de l'appli, puis enregistre.
+1. Ouvrez votre Google Sheet → **Extensions → Apps Script**.
+2. Collez le script affiché dans l'onglet **Google Sheet** de l'application, puis enregistrez.
 3. **Déployer → Nouveau déploiement → Application web**, accès « Tout le monde ».
-4. Copie l'URL du déploiement et colle-la dans l'appli.
+4. Copiez l'URL du déploiement et collez-la dans l'application.
 </details>
 
 ### Avertissement
