@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs'
 import type { MatchRecord } from './stats'
+import { queueName } from './stats'
 
 /**
  * Pure-JS storage (a single JSON file). No native module, so `npm install`
@@ -68,6 +69,20 @@ export function pruneOlderThan(maxAgeMs: number): number {
   }
   if (removed > 0) save()
   return removed
+}
+
+/** Refresh stored queue names (e.g. after the client's queue list loads). */
+export function remapQueueNames(): number {
+  let n = 0
+  for (const g of games.values()) {
+    const nm = queueName(g.queueId)
+    if (nm && nm !== g.queueName) {
+      g.queueName = nm
+      n++
+    }
+  }
+  if (n > 0) save()
+  return n
 }
 
 /** Stored game count and on-disk size in bytes. */

@@ -6,7 +6,16 @@ import {
   Credentials,
   LeagueWebSocket
 } from 'league-connect'
-import { parseGame, MatchRecord, TimelineEvent, LiveGame, ScoutResult, ScoutDiag, Friend } from './stats'
+import {
+  parseGame,
+  MatchRecord,
+  TimelineEvent,
+  LiveGame,
+  ScoutResult,
+  ScoutDiag,
+  Friend,
+  setQueueNames
+} from './stats'
 import { championImageFromLive, ddragonInfo } from './ddragon'
 
 type SgpCtx = {
@@ -29,6 +38,7 @@ export interface SummonerProfile {
   rankedTier: string | null
   rankedDivision: string | null
   rankedLp: number | null
+  region: string
 }
 
 export type LcuStatus =
@@ -48,17 +58,20 @@ export class LcuService {
   private matchesCb: MatchesListener
   private skipIds: SkipIdsProvider
   private profileCb: ProfileListener
+  private queuesCb: () => void
 
   constructor(
     statusCb: StatusListener,
     matchesCb: MatchesListener,
     skipIds: SkipIdsProvider,
-    profileCb: ProfileListener
+    profileCb: ProfileListener,
+    queuesCb: () => void = () => {}
   ) {
     this.statusCb = statusCb
     this.matchesCb = matchesCb
     this.skipIds = skipIds
     this.profileCb = profileCb
+    this.queuesCb = queuesCb
   }
 
   /** Blocks until the League client is running, then wires everything up. */
@@ -90,6 +103,31 @@ export class LcuService {
         /* rank optional */
       }
 
+      let region = ''
+      try {
+        const rl = await this.request<any>('GET', '/riotclient/region-locale')
+        region = String(rl?.region || '').toLowerCase()
+      } catch {
+        /* region optional */
+      }
+
+      // Queue names straight from the client — covers event queues (Mayhem, etc.)
+      // that aren't in any static list.
+      try {
+        const qs = await this.request<any[]>('GET', '/lol-game-queues/v1/queues')
+        if (Array.isArray(qs)) {
+          const m: Record<number, string> = {}
+          for (const q of qs) {
+            const nm = String(q?.name || q?.shortName || q?.description || '').trim()
+            if (q?.id != null && nm) m[q.id] = nm
+          }
+          setQueueNames(m)
+          this.queuesCb()
+        }
+      } catch {
+        /* keep static fallback names */
+      }
+
       this.profileCb({
         gameName: summoner?.gameName ?? summoner?.displayName ?? 'Invocateur',
         tagLine: summoner?.tagLine ?? '',
@@ -97,7 +135,8 @@ export class LcuService {
         summonerLevel: summoner?.summonerLevel ?? 0,
         rankedTier: tier,
         rankedDivision: division,
-        rankedLp: lp
+        rankedLp: lp,
+        region
       })
 
       // Initial backfill of recent history.

@@ -142,6 +142,7 @@ export const translations: Record<Lang, Dict> = {
     'live.scouting2': 'Analyse des joueurs…',
     'live.scoutFail': 'Scouting indisponible',
     'live.onChamp': 'sur ce champion',
+    'live.porofessor': 'Ouvrir sur Porofessor',
     'live.rankOnly': 'Rangs affichés · winrate des joueurs indisponible en keyless',
 
     'options.title': 'Options',
@@ -312,6 +313,7 @@ export const translations: Record<Lang, Dict> = {
     'live.scouting2': 'Analyzing players…',
     'live.scoutFail': 'Scouting unavailable',
     'live.onChamp': 'on this champion',
+    'live.porofessor': 'Open on Porofessor',
     'live.rankOnly': 'Ranks shown · player winrate unavailable in keyless mode',
 
     'options.title': 'Options',

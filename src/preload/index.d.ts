@@ -75,6 +75,7 @@ export interface SummonerProfile {
   rankedTier: string | null
   rankedDivision: string | null
   rankedLp: number | null
+  region: string
 }
 
 export interface ItemPurchase {

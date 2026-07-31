@@ -14,6 +14,7 @@ import {
   resetHistory,
   pruneOlderThan,
   storageInfo,
+  remapQueueNames,
   ONE_MONTH_MS
 } from './db'
 import { LcuService, LcuStatus, SummonerProfile } from './lcu'
@@ -266,7 +267,9 @@ app.whenReady().then(async () => {
 
   await loadDdragon(getSettings().language === 'en' ? 'en_US' : 'fr_FR')
 
-  lcu = new LcuService(onStatus, onMatches, () => skipIdSet(), onProfile)
+  lcu = new LcuService(onStatus, onMatches, () => skipIdSet(), onProfile, () => {
+    if (remapQueueNames() > 0) send('matches:updated', listMatches(300))
+  })
   lcu.connect()
 
   if (getSettings().discordEnabled) initDiscord().then(updateDiscord)

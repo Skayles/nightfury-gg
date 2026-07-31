@@ -76,13 +76,21 @@ export const QUEUES: Record<number, string> = {
   700: 'Clash',
   1700: 'Arena',
   1710: 'Arena',
-  2400: 'ARAM Mayhem',
+  2400: 'ARAM: Mayhem',
+  2450: 'ARAM: Mayhem',
   1900: 'URF',
   900: 'ARURF'
 }
 
+// Filled at runtime from the League client (/lol-game-queues/v1/queues) so event
+// queues resolve correctly even when they're absent from the static list above.
+let dynamicQueues: Record<number, string> = {}
+export function setQueueNames(map: Record<number, string>): void {
+  dynamicQueues = map
+}
+
 export function queueName(id: number): string {
-  return QUEUES[id] ?? `Queue ${id}`
+  return dynamicQueues[id] ?? QUEUES[id] ?? `Queue ${id}`
 }
 
 const RANKED_QUEUES = new Set([420, 440])

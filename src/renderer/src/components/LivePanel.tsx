@@ -5,7 +5,8 @@ import type {
   LiveGame,
   LivePlayer,
   ScoutResult,
-  ScoutDiag
+  ScoutDiag,
+  SummonerProfile
 } from '../../../preload/index.d'
 import { useT } from '../i18n'
 import { loadingArt, fmtRank } from '../lib'
@@ -25,13 +26,13 @@ function LoadingCard({
   const rank = fmtRank(s?.rankTier ?? null, s?.rankDivision ?? null, s?.rankLp ?? null)
   const topBorder = side === 'blue' ? 'bg-teal' : 'bg-loss'
   return (
-    <div className="relative h-full min-h-0 overflow-hidden rounded-lg ring-1 ring-edge">
+    <div className="relative h-full min-h-0 w-auto shrink aspect-[308/560] overflow-hidden rounded-lg ring-1 ring-edge">
       <span className={'absolute inset-x-0 top-0 z-10 h-1 ' + topBorder} />
       {art ? (
         <img
           src={art}
           alt={p.championName}
-          className="absolute inset-0 h-full w-full object-cover object-top"
+          className="absolute inset-0 h-full w-full object-cover object-center"
           onError={(e) => {
             const img = e.currentTarget
             if (!img.dataset.fb) {
@@ -73,7 +74,7 @@ function Team({
         <span className={'h-2.5 w-2.5 rounded-full ' + color} />
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-300">{label}</span>
       </div>
-      <div className="grid min-h-0 flex-1 grid-cols-5 gap-2.5">
+      <div className="flex min-h-0 flex-1 items-stretch justify-center gap-3">
         {players.map((p, i) => (
           <LoadingCard key={i} p={p} s={scout[p.puuid]} side={side} />
         ))}
@@ -98,6 +99,20 @@ export default function LivePanel({
   const [scout, setScout] = useState<Record<string, ScoutResult>>({})
   const [scouting, setScouting] = useState(false)
   const [diag, setDiag] = useState<ScoutDiag | null>(null)
+  const [summoner, setSummoner] = useState<SummonerProfile | null>(null)
+
+  useEffect(() => {
+    window.api.getSummoner().then(setSummoner).catch(() => setSummoner(null))
+    const off = window.api.onSummonerUpdated((p) => setSummoner(p as SummonerProfile))
+    return () => off()
+  }, [])
+
+  const porofessorUrl =
+    summoner && summoner.gameName
+      ? `https://porofessor.gg/live/${summoner.region || 'euw'}/${encodeURIComponent(
+          summoner.gameName
+        )}-${encodeURIComponent(summoner.tagLine)}`
+      : null
 
   useEffect(() => {
     if (!inGame || !settings.scoutingEnabled) {
@@ -173,9 +188,19 @@ export default function LivePanel({
           <h1 className="font-display text-2xl text-slate-100">{t('nav.live')}</h1>
           <p className="text-sm text-mute">{t('live.subtitle')}</p>
         </div>
-        <div className="flex items-center gap-3 text-sm text-slate-200">
-          {t('live.scouting')}
-          <Toggle on={settings.scoutingEnabled} onChange={toggleScouting} />
+        <div className="flex items-center gap-4">
+          {porofessorUrl && (
+            <button
+              onClick={() => window.api.openExternal(porofessorUrl)}
+              className="rounded-md border border-edge px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-teal hover:text-teal"
+            >
+              {t('live.porofessor')}
+            </button>
+          )}
+          <div className="flex items-center gap-3 text-sm text-slate-200">
+            {t('live.scouting')}
+            <Toggle on={settings.scoutingEnabled} onChange={toggleScouting} />
+          </div>
         </div>
       </header>
 
