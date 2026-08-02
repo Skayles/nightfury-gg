@@ -1,4 +1,12 @@
-import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Menu,
+  type MenuItemConstructorOptions
+} from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -19,6 +27,14 @@ import {
 } from './db'
 import { LcuService, LcuStatus, SummonerProfile } from './lcu'
 import { getSettings, setSettings, MatchFilter } from './store'
+import {
+  validateKey,
+  riotScout,
+  accountByRiotId,
+  activeGameByPuuid,
+  playerProfile,
+  playerMatches
+} from './riot'
 import { exportToSheet } from './export'
 import { applyFilter, toCsv, MatchRecord } from './stats'
 import { loadDdragon, ddragonInfo, championName, championIdFromImage } from './ddragon'
@@ -115,6 +131,22 @@ function createWindow(): void {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // Right-click menu (cut / copy / paste / select all) on editable fields.
+  mainWindow.webContents.on('context-menu', (_e, params) => {
+    const { editFlags, isEditable, selectionText } = params
+    if (!isEditable && !selectionText) return
+    const template: MenuItemConstructorOptions[] = isEditable
+      ? [
+          { role: 'cut', enabled: editFlags.canCut },
+          { role: 'copy', enabled: editFlags.canCopy },
+          { role: 'paste', enabled: editFlags.canPaste },
+          { type: 'separator' },
+          { role: 'selectAll' }
+        ]
+      : [{ role: 'copy', enabled: editFlags.canCopy }]
+    Menu.buildFromTemplate(template).popup({ window: mainWindow ?? undefined })
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -225,14 +257,113 @@ function registerIpc(): void {
   ipcMain.handle('live:get', () => lcu.fetchLiveGame())
   ipcMain.handle(
     'live:scout',
-    (_e, players: { puuid: string; championImage: string }[], queueId: number) => {
+    async (
+      _e,
+      players: { puuid: string; championImage: string; teamId?: number }[],
+      queueId: number
+    ) => {
       const inputs = players.map((p) => ({
         puuid: p.puuid,
-        championId: championIdFromImage(p.championImage)
+        championId: championIdFromImage(p.championImage),
+        teamId: p.teamId ?? 0
       }))
+      const key = getSettings().riotApiKey?.trim()
+      const region = summonerProfile?.region || 'euw'
+      // With a personal key: rank + real winrate via the official API.
+      if (key) {
+        try {
+          const results = await riotScout(key, region, inputs)
+          return {
+            results,
+            diag: {
+              ok: true,
+              tokenFound: true,
+              baseFound: true,
+              historyOk: true,
+              base: 'riot-api',
+              region,
+              error: '',
+              sample: ''
+            }
+          }
+        } catch {
+          /* fall back to keyless SGP below */
+        }
+      }
       return lcu.scoutPlayers(inputs, queueId)
     }
   )
+
+  ipcMain.handle('riot:validate', async (_e, key: string) => {
+    const region = summonerProfile?.region || 'euw'
+    return validateKey((key ?? '').trim(), region)
+  })
+
+  ipcMain.handle(
+    'riot:player-matches',
+    async (_e, gameName: string, tagLine: string, start: number, count: number) => {
+      const key = getSettings().riotApiKey?.trim()
+      if (!key) return []
+      const region = summonerProfile?.region || 'euw'
+      return playerMatches(key, region, gameName.trim(), tagLine.trim(), start, count)
+    }
+  )
+
+  ipcMain.handle('riot:player-profile', async (_e, gameName: string, tagLine: string) => {
+    const key = getSettings().riotApiKey?.trim()
+    if (!key) return { status: 'no-key' as const }
+    const region = summonerProfile?.region || 'euw'
+    return playerProfile(key, region, gameName.trim(), tagLine.trim())
+  })
+
+  ipcMain.handle('riot:player-live', async (_e, gameName: string, tagLine: string) => {
+    const key = getSettings().riotApiKey?.trim()
+    if (!key) return { status: 'no-key' as const }
+    const region = summonerProfile?.region || 'euw'
+    const acc = await accountByRiotId(key, region, gameName.trim(), tagLine.trim())
+    if (!acc?.puuid) return { status: 'not-found' as const }
+    const raw = await activeGameByPuuid(key, region, acc.puuid)
+    if (!raw || !raw.participants?.length) return { status: 'not-in-game' as const }
+
+    const dd = ddragonInfo()
+    const mk = (p: {
+      puuid: string
+      championId: number
+      riotId?: string
+      summonerName?: string
+    }): {
+      name: string
+      tagLine: string
+      championImage: string
+      championName: string
+      skinId: number
+      puuid: string
+    } => {
+      const [gn] = (p.riotId || '').split('#')
+      const tl = (p.riotId || '').split('#')[1] || ''
+      return {
+        name: gn || p.summonerName || '',
+        tagLine: tl,
+        championImage: dd.champions?.[p.championId] || '',
+        championName: dd.champNames?.[p.championId] || '',
+        skinId: 0,
+        puuid: p.puuid
+      }
+    }
+    const teamOne = raw.participants.filter((p) => p.teamId === 100).map(mk)
+    const teamTwo = raw.participants.filter((p) => p.teamId === 200).map(mk)
+    const inputs = raw.participants.map((p) => ({
+      puuid: p.puuid,
+      championId: p.championId,
+      teamId: p.teamId
+    }))
+    const scout = await riotScout(key, region, inputs)
+    return {
+      status: 'ok' as const,
+      game: { teamOne, teamTwo, queueId: raw.gameQueueConfigId ?? 0 },
+      scout
+    }
+  })
 
   ipcMain.handle('export:run', async () => runExport())
   ipcMain.handle('export:preview', () => {

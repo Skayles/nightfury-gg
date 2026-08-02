@@ -22,6 +22,16 @@ export default function App(): JSX.Element {
     latest: string
     url: string
   } | null>(null)
+  const [profileSearch, setProfileSearch] = useState<{
+    gameName: string
+    tagLine: string
+    nonce: number
+  } | null>(null)
+
+  function openPlayerProfile(gameName: string, tagLine: string): void {
+    setProfileSearch({ gameName, tagLine, nonce: Date.now() })
+    setTab('profile')
+  }
 
   async function reloadSettings(): Promise<void> {
     const s = await window.api.getSettings()
@@ -76,9 +86,22 @@ export default function App(): JSX.Element {
         )}
         <main className="flex-1 overflow-y-auto px-8 py-7">
           {tab === 'live' && settings && (
-            <LivePanel lcu={lcu} settings={settings} onChanged={reloadSettings} />
+            <LivePanel
+              lcu={lcu}
+              settings={settings}
+              onChanged={reloadSettings}
+              onGoToOptions={() => setTab('options')}
+              onOpenProfile={openPlayerProfile}
+            />
           )}
-          {tab === 'profile' && <Profile matches={matches} />}
+          {tab === 'profile' && (
+            <Profile
+              matches={matches}
+              hasApiKey={!!settings?.riotApiKey}
+              pendingSearch={profileSearch}
+              onSearchConsumed={() => setProfileSearch(null)}
+            />
+          )}
           {tab === 'export' && settings && (
             <ExportPanel
               matches={matches}

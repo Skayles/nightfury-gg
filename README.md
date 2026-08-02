@@ -42,25 +42,31 @@ reads as a stats companion.
 
 - **Profile** — an op.gg-style match history with **filters** (queue, champion,
   result, period), aggregate stats (winrate, KDA, CS/min, KP, vision) and
-  per-champion breakdowns. A summoner header shows your icon, level and rank.
-  Click any match to open it in two tabs:
-  - **My game** — your full detailed stats plus a **highlights timeline** (first
-    blood, your kills & deaths, dragons, Baron, towers…).
-  - **Scoreboard** — all 10 players with champion, KDA, CS, damage, gold and
-    their **items** (hover for full item tooltips).
-- **Live / Lobby** — while you're in a game, see the **10 players** with their
-  champion, Riot ID and **rank** — fetched keyless from your client session and
-  presented like a loading screen.
+  per-champion breakdowns, split into two sub-tabs:
+  - **Overview** — the summoner header (icon, level, rank), aggregates and the
+    clickable match history.
+  - **Charts** — recent form, a cumulative **winrate trend**, **win/loss** and
+    **by-queue** donut charts, and your most-played champions.
+  - Click any match to open it in two tabs: **My game** (full stats + a
+    **highlights timeline**: first blood, kills & deaths, dragons, Baron, towers…)
+    and **Scoreboard** (all 10 players with KDA, CS, damage, gold and items).
+- **Live / Lobby** — a **loading-screen view** of the 10 players, sorted by role
+  (top → jungle → mid → adc → support), each shown with the champion's art (right
+  skin), Riot ID and **rank**. Includes an **Open on Porofessor** button, and the
+  cards are **clickable** to open a player's profile in the app.
 - **Friends list** — a side drawer showing your Riot friends, their status and
   which game they're on, with the champion for those in a LoL game.
 - **Google Sheet export** — send your history to a Google Sheet with **no Google
   login**: you paste a small Apps Script URL bound to *your* sheet. Manual or
   automatic (on game end), with an export filter, plus a zero-config **CSV** export.
+- **Update notifier** — checks GitHub Releases on launch and shows a banner when a
+  newer version is available.
 - **Discord Rich Presence** *(optional, off by default)* — shows "Nightfury.gg"
   in your Discord status with your current champion and a game timer.
-- **Options** — switch language (🇫🇷 / 🇬🇧), toggle Discord presence, and manage
-  storage (free up space by removing games older than a month).
-- **Bilingual** — full French / English interface.
+- **Options** — switch language (🇫🇷 / 🇬🇧), toggle Discord presence, manage
+  storage, and add an optional Riot API key (see *Advanced mode* below).
+- **Bilingual** — full French / English interface, with times shown in your PC's
+  local time zone.
 
 ### Keyless by design
 
@@ -70,9 +76,33 @@ third party. Rank data for other players comes from **your own client's session*
 the same way the game client itself talks to Riot's servers.
 
 > **Note on player winrate:** showing *other* players' winrate / per-champion
-> stats reliably would require a backend with a Riot **production** API key. To
-> stay 100% keyless, Nightfury.gg shows other players' **rank** only. Their full
-> stats are one click away on op.gg / Porofessor if you want them.
+> stats reliably isn't possible from the client session alone. To stay 100%
+> keyless, Nightfury.gg shows other players' **rank** only — unless you opt into
+> *Advanced mode* with your own key (below).
+
+### Advanced mode (optional Riot API key)
+
+By default the app is fully keyless and shows other players' **rank** only. If you
+add **your own Riot API key** in **Options** (a free 24h development key, or a
+personal / production key), you unlock:
+
+- **Real winrate** and account **level** for the 10 players in the Live view.
+- **Smurf detection** — a badge flags likely smurfs (low level and/or high winrate
+  over few games).
+- **Premade detection** — teammates who often queue together are grouped with a
+  coloured dot.
+- **Player search** — look up **any** player: their live game (loading-screen view)
+  and their full **profile** (rank, history with *load more*, stats, charts).
+
+Get a key at <https://developer.riotgames.com/>. Your key is stored **locally** in
+the app's user-data folder and is **never** bundled in the app or committed to the
+repo. These are best-effort heuristics (like Porofessor/Blitz), and a development
+key expires every 24h.
+
+> **Never** ship a production key inside a distributed desktop app — client-side
+> code can always be read, so the key would leak. The only safe place for a shared
+> production key is a backend you host. The "everyone brings their own key" model
+> above avoids that problem entirely.
 
 ### ⚠️ Windows SmartScreen / antivirus warning
 
@@ -113,6 +143,15 @@ The build uses the icon in `build/` and produces a portable executable named
 **Nightfury.gg**.
 
 ### Optional setup
+
+<details>
+<summary><b>Riot API key (advanced mode)</b></summary>
+
+1. Sign in at <https://developer.riotgames.com/> with your Riot account.
+2. Copy your **Development API Key** (free, expires every 24h) — or register a
+   project for a **Personal / Production** key.
+3. Paste it into the app's **Options → Riot API key** and click *Save and validate*.
+</details>
 
 <details>
 <summary><b>Discord Rich Presence</b></summary>
@@ -171,27 +210,34 @@ comprenne tout de suite qu'il s'agit d'un compagnon de stats.
 
 - **Profil** — un historique façon op.gg avec **filtres** (file, champion,
   résultat, période), des stats agrégées (winrate, KDA, CS/min, KP, vision) et
-  le détail par champion. Un en-tête affiche votre icône, votre niveau et votre
-  rang. Cliquez sur une partie pour l'ouvrir en deux onglets :
-  - **Ma partie** — toutes vos stats détaillées + une **frise des faits marquants**
-    (first blood, vos kills et morts, dragons, Baron, tours…).
-  - **Scoreboard** — les 10 joueurs avec champion, KDA, CS, dégâts, or et leurs
-    **objets** (infobulle complète au survol).
-- **Live / Lobby** — pendant une partie, affiche les **10 joueurs** avec leur
-  champion, leur Riot ID et leur **rang** — récupéré en keyless via la session
-  de votre client, présenté comme un écran de chargement.
+  le détail par champion, réparti en deux sous-onglets :
+  - **Vue d'ensemble** — l'en-tête d'invocateur (icône, niveau, rang), les
+    agrégats et l'historique cliquable.
+  - **Graphiques** — la forme récente, une **courbe de winrate**, des camemberts
+    **victoires/défaites** et **par file**, et vos champions les plus joués.
+  - Cliquez sur une partie pour l'ouvrir en deux onglets : **Ma partie** (stats
+    détaillées + une **frise des faits marquants** : first blood, kills et morts,
+    dragons, Baron, tours…) et **Scoreboard** (les 10 joueurs avec KDA, CS,
+    dégâts, or et objets).
+- **Live / Lobby** — une **vue écran de chargement** des 10 joueurs, **triés par
+  rôle** (top → jungle → mid → adc → support), chacun avec l'art du champion (bon
+  skin), son Riot ID et son **rang**. Avec un bouton **Ouvrir sur Porofessor**, et
+  les cartes sont **cliquables** pour ouvrir le profil d'un joueur dans l'app.
+- **Liste d'amis** — un tiroir latéral montrant vos amis Riot, leur statut et le
+  jeu sur lequel ils sont, avec le champion pour ceux en partie sur LoL.
 - **Export Google Sheet** — envoie votre historique vers un Google Sheet **sans
   connexion Google** : vous collez une petite URL Apps Script rattachée à *votre*
   sheet. Manuel ou automatique (fin de partie), avec un filtre d'export, plus un
   export **CSV** sans configuration.
-- **Liste d'amis** — un tiroir latéral montrant vos amis Riot, leur statut et le
-  jeu sur lequel ils sont, avec le champion pour ceux en partie sur LoL.
+- **Notification de mise à jour** — vérifie les releases GitHub au lancement et
+  affiche une bannière quand une nouvelle version est disponible.
 - **Présence Discord** *(optionnelle, désactivée par défaut)* — affiche
   « Nightfury.gg » dans votre statut Discord, avec votre champion et le chrono.
 - **Options** — changez de langue (🇫🇷 / 🇬🇧), activez/désactivez la présence
-  Discord, et gérez le stockage (libérez de l'espace en supprimant les vieilles
-  parties).
-- **Bilingue** — interface complète français / anglais.
+  Discord, gérez le stockage, et ajoutez une clé API Riot optionnelle (voir
+  *Mode avancé* ci-dessous).
+- **Bilingue** — interface complète français / anglais, avec les heures affichées
+  dans le fuseau horaire local de votre PC.
 
 ### Keyless par conception
 
@@ -202,10 +248,37 @@ de votre propre client**, de la même façon que le client du jeu communique ave
 les serveurs de Riot.
 
 > **À propos du winrate des joueurs :** afficher de façon fiable le winrate /
-> les stats par champion des *autres* joueurs nécessiterait un backend avec une
-> clé API **de production** Riot. Pour rester 100 % keyless, Nightfury.gg affiche
-> uniquement leur **rang**. Leurs stats complètes restent à un clic sur op.gg /
-> Porofessor si vous les souhaitez.
+> les stats par champion des *autres* joueurs n'est pas possible depuis la seule
+> session du client. Pour rester 100 % keyless, Nightfury.gg affiche uniquement
+> leur **rang** — sauf si vous activez le *Mode avancé* avec votre propre clé
+> (ci-dessous).
+
+### Mode avancé (clé API Riot optionnelle)
+
+Par défaut, l'application est entièrement keyless et n'affiche que le **rang** des
+autres joueurs. Si vous ajoutez **votre propre clé API Riot** dans les **Options**
+(une clé de développement gratuite valable 24 h, ou une clé personnelle /
+production), vous débloquez :
+
+- Le **winrate réel** et le **niveau** de compte des 10 joueurs en Live.
+- La **détection de smurf** — un badge signale les smurfs probables (niveau bas
+  et/ou winrate élevé sur peu de parties).
+- La **détection de premade** — les coéquipiers qui jouent souvent ensemble sont
+  regroupés par une pastille de couleur.
+- La **recherche de joueur** — consultez **n'importe quel** joueur : sa partie en
+  cours (vue écran de chargement) et son **profil** complet (rang, historique avec
+  *charger plus*, stats, graphiques).
+
+Obtenez une clé sur <https://developer.riotgames.com/>. Votre clé est stockée
+**localement** dans le dossier de données de l'application ; elle n'est **jamais**
+incluse dans l'app ni poussée sur le dépôt. Ce sont des heuristiques best-effort
+(comme Porofessor/Blitz), et une clé de développement expire toutes les 24 h.
+
+> N'intégrez **jamais** une clé de production dans une app de bureau distribuée :
+> le code côté client est toujours lisible, la clé fuiterait. Le seul endroit sûr
+> pour une clé de production partagée est un backend que vous hébergez. Le modèle
+> « chacun sa clé » ci-dessus évite totalement ce problème.
+
 
 ### ⚠️ Avertissement SmartScreen / antivirus (Windows)
 
@@ -247,6 +320,15 @@ Le build utilise l'icône du dossier `build/` et produit un exécutable portable
 nommé **Nightfury.gg**.
 
 ### Configuration optionnelle
+
+<details>
+<summary><b>Clé API Riot (mode avancé)</b></summary>
+
+1. Connectez-vous sur <https://developer.riotgames.com/> avec votre compte Riot.
+2. Copiez votre **Development API Key** (gratuite, expire toutes les 24 h) — ou
+   enregistrez un projet pour une clé **Personal / Production**.
+3. Collez-la dans **Options → Clé API Riot** et cliquez sur *Enregistrer et valider*.
+</details>
 
 <details>
 <summary><b>Présence Discord</b></summary>

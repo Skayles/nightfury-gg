@@ -9,24 +9,36 @@ import type {
   SummonerProfile
 } from '../../../preload/index.d'
 import { useT } from '../i18n'
-import { loadingArt, fmtRank } from '../lib'
+import { loadingArt, fmtRank, gamesLabel, orderByRole } from '../lib'
 import Toggle from './Toggle'
+
+const PREMADE_COLORS = ['#F59E0B', '#8B5CF6', '#22D3EE', '#EC4899']
 
 function LoadingCard({
   p,
   s,
-  side
+  side,
+  onOpen
 }: {
   p: LivePlayer
   s?: ScoutResult
   side: 'blue' | 'red'
+  onOpen?: () => void
 }): JSX.Element {
   const t = useT()
   const art = loadingArt(p.championImage, p.skinId)
   const rank = fmtRank(s?.rankTier ?? null, s?.rankDivision ?? null, s?.rankLp ?? null)
   const topBorder = side === 'blue' ? 'bg-teal' : 'bg-loss'
+  const clickable = !!onOpen && !!p.tagLine
   return (
-    <div className="relative h-full min-h-0 w-auto shrink aspect-[308/560] overflow-hidden rounded-lg ring-1 ring-edge">
+    <div
+      onClick={clickable ? onOpen : undefined}
+      title={clickable ? `${p.name} #${p.tagLine}` : undefined}
+      className={
+        'relative h-full min-h-0 w-auto shrink aspect-[308/560] overflow-hidden rounded-lg ring-1 ring-edge ' +
+        (clickable ? 'cursor-pointer transition-shadow hover:ring-2 hover:ring-teal' : '')
+      }
+    >
       <span className={'absolute inset-x-0 top-0 z-10 h-1 ' + topBorder} />
       {art ? (
         <img
@@ -45,11 +57,35 @@ function LoadingCard({
         <div className="absolute inset-0 bg-panel2" />
       )}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-2 pb-2 pt-8">
-        <div className="truncate text-sm font-semibold text-white">{p.name || '—'}</div>
+        <div className="mb-0.5 flex items-center gap-1.5">
+          {s?.premadeGroup ? (
+            <span
+              className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-black/40"
+              style={{ background: PREMADE_COLORS[(s.premadeGroup - 1) % PREMADE_COLORS.length] }}
+              title={t('live.premade')}
+            />
+          ) : null}
+          <span className="truncate text-sm font-semibold text-white">{p.name || '—'}</span>
+          {s?.smurf && (
+            <span
+              className="ml-auto shrink-0 rounded bg-gold/25 px-1 text-[9px] font-bold uppercase text-gold"
+              title={t('live.smurfHint')}
+            >
+              {t('live.smurf')}
+            </span>
+          )}
+        </div>
         <div className="truncate text-[11px] text-slate-300">{p.championName}</div>
         <div className={'truncate text-[11px] ' + (rank ? 'text-gold' : 'text-slate-400')}>
           {rank || t('profile.unranked')}
+          {s?.level ? <span className="text-mute"> · lvl {s.level}</span> : null}
         </div>
+        {s?.winrate != null && (
+          <div className="truncate text-[11px]">
+            <span className={s.winrate >= 50 ? 'text-win' : 'text-loss'}>{s.winrate}%</span>
+            <span className="text-mute"> · {gamesLabel(s.games ?? 0, t)}</span>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -60,13 +96,15 @@ function Team({
   color,
   players,
   scout,
-  side
+  side,
+  onOpenProfile
 }: {
   label: string
   color: string
   players: LivePlayer[]
   scout: Record<string, ScoutResult>
   side: 'blue' | 'red'
+  onOpenProfile?: (gameName: string, tagLine: string) => void
 }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -75,8 +113,14 @@ function Team({
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-300">{label}</span>
       </div>
       <div className="flex min-h-0 flex-1 items-stretch justify-center gap-3">
-        {players.map((p, i) => (
-          <LoadingCard key={i} p={p} s={scout[p.puuid]} side={side} />
+        {orderByRole(players).map((p, i) => (
+          <LoadingCard
+            key={i}
+            p={p}
+            s={scout[p.puuid]}
+            side={side}
+            onOpen={onOpenProfile ? () => onOpenProfile(p.name, p.tagLine) : undefined}
+          />
         ))}
       </div>
     </div>
@@ -86,11 +130,15 @@ function Team({
 export default function LivePanel({
   lcu,
   settings,
-  onChanged
+  onChanged,
+  onGoToOptions,
+  onOpenProfile
 }: {
   lcu: LcuStatus
   settings: AppSettings
   onChanged: () => void
+  onGoToOptions: () => void
+  onOpenProfile: (gameName: string, tagLine: string) => void
 }): JSX.Element {
   const t = useT()
   const inGame = lcu.state === 'in-game'
@@ -100,6 +148,54 @@ export default function LivePanel({
   const [scouting, setScouting] = useState(false)
   const [diag, setDiag] = useState<ScoutDiag | null>(null)
   const [summoner, setSummoner] = useState<SummonerProfile | null>(null)
+  const [query, setQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchGame, setSearchGame] = useState<LiveGame | null>(null)
+  const [searchScout, setSearchScout] = useState<Record<string, ScoutResult>>({})
+  const [searchMsg, setSearchMsg] = useState<string | null>(null)
+  const [searchName, setSearchName] = useState('')
+
+  async function runSearch(): Promise<void> {
+    const q = query.trim()
+    const hash = q.lastIndexOf('#')
+    if (hash < 1 || hash === q.length - 1) {
+      setSearchMsg(t('live.searchFormat'))
+      return
+    }
+    const gameName = q.slice(0, hash).trim()
+    const tagLine = q.slice(hash + 1).trim()
+    setSearching(true)
+    setSearchMsg(null)
+    setSearchGame(null)
+    try {
+      const r = await window.api.getPlayerLive(gameName, tagLine)
+      if (r.status === 'ok' && r.game) {
+        const m: Record<string, ScoutResult> = {}
+        ;(r.scout ?? []).forEach((s) => (m[s.puuid] = s))
+        setSearchScout(m)
+        setSearchGame(r.game)
+        setSearchName(`${gameName} #${tagLine}`)
+      } else {
+        setSearchMsg(
+          r.status === 'not-in-game'
+            ? t('live.searchNotInGame')
+            : r.status === 'not-found'
+              ? t('live.searchNotFound')
+              : t('live.searchNoKey')
+        )
+      }
+    } catch {
+      setSearchMsg(t('live.searchNotFound'))
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function clearSearch(): void {
+    setSearchGame(null)
+    setSearchMsg(null)
+    setQuery('')
+  }
 
   useEffect(() => {
     window.api.getSummoner().then(setSummoner).catch(() => setSummoner(null))
@@ -113,6 +209,8 @@ export default function LivePanel({
           summoner.gameName
         )}-${encodeURIComponent(summoner.tagLine)}`
       : null
+
+  const cardOpen = settings.riotApiKey ? onOpenProfile : undefined
 
   useEffect(() => {
     if (!inGame || !settings.scoutingEnabled) {
@@ -145,9 +243,12 @@ export default function LivePanel({
 
   useEffect(() => {
     if (!game || !gameKey) return
-    const players = [...game.teamOne, ...game.teamTwo]
+    const players = [
+      ...game.teamOne.map((p) => ({ ...p, teamId: 100 })),
+      ...game.teamTwo.map((p) => ({ ...p, teamId: 200 }))
+    ]
       .filter((p) => p.puuid)
-      .map((p) => ({ puuid: p.puuid, championImage: p.championImage }))
+      .map((p) => ({ puuid: p.puuid, championImage: p.championImage, teamId: p.teamId }))
     if (!players.length) return
     let alive = true
     setScouting(true)
@@ -204,7 +305,56 @@ export default function LivePanel({
         </div>
       </header>
 
-      {!settings.scoutingEnabled ? (
+      {settings.riotApiKey && (
+        <div className="mb-4 flex shrink-0 flex-wrap items-center gap-2">
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+            placeholder={t('live.searchPlaceholder')}
+            spellCheck={false}
+            className="w-72 rounded-md border border-edge bg-night px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-teal"
+          />
+          <button
+            onClick={runSearch}
+            disabled={searching}
+            className="rounded-md border border-teal bg-teal/10 px-3 py-1.5 text-sm font-medium text-teal hover:bg-teal/20 disabled:opacity-50"
+          >
+            {searching ? '…' : t('live.searchBtn')}
+          </button>
+          {searchGame && (
+            <button onClick={clearSearch} className="text-xs text-mute hover:text-slate-200">
+              {t('live.searchClear')}
+            </button>
+          )}
+          {searchMsg && <span className="text-xs text-mute">{searchMsg}</span>}
+        </div>
+      )}
+
+      {searchGame ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="shrink-0 text-sm text-slate-300">
+            {t('live.searchViewing')}{' '}
+            <span className="font-semibold text-slate-100">{searchName}</span>
+          </div>
+          <Team
+            label={t('live.teamBlue')}
+            color="bg-teal"
+            players={searchGame.teamOne}
+            scout={searchScout}
+            side="blue"
+            onOpenProfile={cardOpen}
+          />
+          <Team
+            label={t('live.teamRed')}
+            color="bg-loss"
+            players={searchGame.teamTwo}
+            scout={searchScout}
+            side="red"
+            onOpenProfile={cardOpen}
+          />
+        </div>
+      ) : !settings.scoutingEnabled ? (
         placeholder(t('live.disabled'))
       ) : !inGame ? (
         placeholder(
@@ -221,6 +371,7 @@ export default function LivePanel({
             players={game.teamOne}
             scout={scout}
             side="blue"
+            onOpenProfile={cardOpen}
           />
           <Team
             label={t('live.teamRed')}
@@ -228,12 +379,21 @@ export default function LivePanel({
             players={game.teamTwo}
             scout={scout}
             side="red"
+            onOpenProfile={cardOpen}
           />
-          {(scouting || (diag && !diag.historyOk)) && (
+          {scouting ? (
+            <p className="shrink-0 text-center text-[11px] text-mute">{t('live.scouting2')}</p>
+          ) : !settings.riotApiKey ? (
             <p className="shrink-0 text-center text-[11px] text-mute">
-              {scouting ? t('live.scouting2') : t('live.rankOnly')}
+              {t('live.rankOnly')}{' '}
+              <button
+                onClick={onGoToOptions}
+                className="text-teal underline-offset-2 hover:underline"
+              >
+                {t('live.unlockWinrate')}
+              </button>
             </p>
-          )}
+          ) : null}
         </div>
       ) : (
         placeholder(loading ? t('live.loadingGame') : t('live.detected'))

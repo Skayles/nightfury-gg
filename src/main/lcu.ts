@@ -280,6 +280,7 @@ export class LcuService {
       const championImage = championImageFromLive(p.championName, p.rawChampionName)
       return {
         name: p.riotIdGameName || p.summonerName || p.riotId || '',
+        tagLine: p.riotIdTagLine || (p.riotId ? String(p.riotId).split('#')[1] : '') || '',
         championImage,
         championName: p.championName || '',
         skinId: Number(p.skinID ?? p.skinId ?? 0),

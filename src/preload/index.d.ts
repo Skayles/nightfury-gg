@@ -99,6 +99,7 @@ export interface TimelineEvent {
 
 export interface LivePlayer {
   name: string
+  tagLine: string
   championImage: string
   championName: string
   skinId: number
@@ -126,6 +127,9 @@ export interface ScoutResult {
   games: number | null
   champGames: number | null
   champWinrate: number | null
+  level?: number | null
+  smurf?: boolean
+  premadeGroup?: number
 }
 export interface ScoutDiag {
   ok: boolean
@@ -154,6 +158,7 @@ export interface AppSettings {
   scoutingEnabled: boolean
   language: 'fr' | 'en'
   discordEnabled: boolean
+  riotApiKey: string
 }
 
 export type LcuStatus =
@@ -184,6 +189,29 @@ export interface Api {
   getFriends(): Promise<Friend[]>
   checkUpdate(): Promise<{ updateAvailable: boolean; latest: string; url: string }>
   openExternal(url: string): Promise<void>
+  validateRiotKey(key: string): Promise<{ ok: boolean; message: string }>
+  getPlayerLive(
+    gameName: string,
+    tagLine: string
+  ): Promise<{
+    status: 'ok' | 'no-key' | 'not-found' | 'not-in-game'
+    game?: LiveGame
+    scout?: ScoutResult[]
+  }>
+  getPlayerProfile(
+    gameName: string,
+    tagLine: string
+  ): Promise<{
+    status: 'ok' | 'no-key' | 'not-found'
+    summoner?: SummonerProfile
+    matches?: MatchRecord[]
+  }>
+  getPlayerMatches(
+    gameName: string,
+    tagLine: string,
+    start: number,
+    count: number
+  ): Promise<MatchRecord[]>
   listMatches(): Promise<MatchRecord[]>
   allMatches(): Promise<MatchRecord[]>
   refreshMatches(): Promise<MatchRecord[]>
@@ -200,7 +228,7 @@ export interface Api {
   getMatchTimeline(gameId: number): Promise<TimelineEvent[]>
   getLiveGame(): Promise<LiveGame | null>
   scoutLiveGame(
-    players: { puuid: string; championImage: string }[],
+    players: { puuid: string; championImage: string; teamId?: number }[],
     queueId: number
   ): Promise<{ results: ScoutResult[]; diag: ScoutDiag }>
   exportRun(): Promise<{ added: number }>

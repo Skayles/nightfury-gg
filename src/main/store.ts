@@ -31,6 +31,9 @@ export interface Settings {
   language: 'fr' | 'en'
   // Discord Rich Presence.
   discordEnabled: boolean
+  // Optional personal Riot API key (dev 24h or production) to unlock winrate
+  // and other-player lookups. Empty = fully keyless mode.
+  riotApiKey: string
 }
 
 const defaults: Settings = {
@@ -41,7 +44,8 @@ const defaults: Settings = {
   exportFilter: { ...EMPTY_FILTER },
   scoutingEnabled: true,
   language: 'fr',
-  discordEnabled: false
+  discordEnabled: false,
+  riotApiKey: ''
 }
 
 let cache: Settings | null = null

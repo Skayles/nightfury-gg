@@ -28,8 +28,18 @@ const api = {
   getFriends: () => ipcRenderer.invoke('friends:get'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   openExternal: (url: string) => ipcRenderer.invoke('shell:open', url),
+  validateRiotKey: (key: string) => ipcRenderer.invoke('riot:validate', key),
+  getPlayerLive: (gameName: string, tagLine: string) =>
+    ipcRenderer.invoke('riot:player-live', gameName, tagLine),
+  getPlayerProfile: (gameName: string, tagLine: string) =>
+    ipcRenderer.invoke('riot:player-profile', gameName, tagLine),
+  getPlayerMatches: (gameName: string, tagLine: string, start: number, count: number) =>
+    ipcRenderer.invoke('riot:player-matches', gameName, tagLine, start, count),
   getLiveGame: () => ipcRenderer.invoke('live:get'),
-  scoutLiveGame: (players: { puuid: string; championImage: string }[], queueId: number) =>
+  scoutLiveGame: (
+    players: { puuid: string; championImage: string; teamId?: number }[],
+    queueId: number
+  ) =>
     ipcRenderer.invoke('live:scout', players, queueId),
 
   exportRun: () => ipcRenderer.invoke('export:run'),

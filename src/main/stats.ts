@@ -119,6 +119,7 @@ export interface TimelineEvent {
 
 export interface LivePlayer {
   name: string
+  tagLine: string
   championImage: string
   championName: string
   skinId: number
@@ -159,6 +160,9 @@ export interface ScoutResult {
   games: number | null
   champGames: number | null
   champWinrate: number | null
+  level?: number | null
+  smurf?: boolean
+  premadeGroup?: number
 }
 
 export interface ScoutDiag {

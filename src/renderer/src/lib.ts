@@ -76,12 +76,17 @@ export function perChampion(matches: MatchRecord[]): ChampStat[] {
 }
 
 export function fmtDate(ms: number): string {
-  return new Date(ms).toLocaleString('fr-FR', {
+  // Uses the PC's local locale (undefined) and local time zone (default) so the
+  // time shown is exactly the player's local clock time.
+  const d = new Date(ms)
+  const opts: Intl.DateTimeFormatOptions = {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit'
-  })
+  }
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = '2-digit'
+  return d.toLocaleString(undefined, opts)
 }
 
 const DD = 'https://ddragon.leagueoflegends.com/cdn'
@@ -101,10 +106,83 @@ export function profileIcon(version: string, iconId: number): string | null {
   return `${DD}/${version}/img/profileicon/${iconId}.png`
 }
 
+/** Localized "N games" / "N parties" (handles singular). */
+export function gamesLabel(n: number, t: (k: string, v?: Record<string, string | number>) => string): string {
+  return t(n === 1 ? 'common.game' : 'common.games', { n })
+}
+
 /** Champion loading-screen art (the vertical card), for a given skin. Not versioned. */
 export function loadingArt(imageId: string | undefined, skinId = 0): string | null {
   if (!imageId) return null
   return `https://ddragon.leagueoflegends.com/cdn/img/champion/loading/${imageId}_${skinId}.jpg`
+}
+
+type Role = 'TOP' | 'JUNGLE' | 'MID' | 'ADC' | 'SUPPORT'
+const ROLE_ORDER: Record<Role, number> = { TOP: 0, JUNGLE: 1, MID: 2, ADC: 3, SUPPORT: 4 }
+
+// Primary role per champion (keyed by Data Dragon image id). Best-effort for a
+// loading-screen-style ordering; flex picks use their most common lane.
+const CHAMP_ROLE: Record<string, Role> = {
+  // TOP
+  Aatrox: 'TOP', Camille: 'TOP', Chogath: 'TOP', Darius: 'TOP', DrMundo: 'TOP',
+  Fiora: 'TOP', Gangplank: 'TOP', Garen: 'TOP', Gnar: 'TOP', Gwen: 'TOP',
+  Illaoi: 'TOP', Jax: 'TOP', Jayce: 'TOP', Kayle: 'TOP', Kled: 'TOP', KSante: 'TOP',
+  Malphite: 'TOP', Maokai: 'TOP', Mordekaiser: 'TOP', Nasus: 'TOP', Ornn: 'TOP',
+  Quinn: 'TOP', Renekton: 'TOP', Riven: 'TOP', Rumble: 'TOP', Sett: 'TOP',
+  Shen: 'TOP', Singed: 'TOP', Sion: 'TOP', Teemo: 'TOP', Trundle: 'TOP',
+  Tryndamere: 'TOP', Urgot: 'TOP', Volibear: 'TOP', Yorick: 'TOP', Kennen: 'TOP',
+  Aurora: 'TOP',
+  // JUNGLE
+  Amumu: 'JUNGLE', Belveth: 'JUNGLE', Briar: 'JUNGLE', Diana: 'JUNGLE', Ekko: 'JUNGLE',
+  Elise: 'JUNGLE', Evelynn: 'JUNGLE', Fiddlesticks: 'JUNGLE', Gragas: 'JUNGLE',
+  Graves: 'JUNGLE', Hecarim: 'JUNGLE', Ivern: 'JUNGLE', JarvanIV: 'JUNGLE',
+  Karthus: 'JUNGLE', Kayn: 'JUNGLE', Khazix: 'JUNGLE', Kindred: 'JUNGLE',
+  LeeSin: 'JUNGLE', Lillia: 'JUNGLE', MasterYi: 'JUNGLE', Nidalee: 'JUNGLE',
+  Nocturne: 'JUNGLE', Nunu: 'JUNGLE', Olaf: 'JUNGLE', Poppy: 'JUNGLE', Rammus: 'JUNGLE',
+  RekSai: 'JUNGLE', Rengar: 'JUNGLE', Sejuani: 'JUNGLE', Shaco: 'JUNGLE',
+  Skarner: 'JUNGLE', Udyr: 'JUNGLE', Vi: 'JUNGLE', Viego: 'JUNGLE', Warwick: 'JUNGLE',
+  XinZhao: 'JUNGLE', Zac: 'JUNGLE', MonkeyKing: 'JUNGLE', Naafiri: 'JUNGLE',
+  // MID
+  Ahri: 'MID', Akali: 'MID', Anivia: 'MID', Annie: 'MID', AurelionSol: 'MID',
+  Azir: 'MID', Cassiopeia: 'MID', Fizz: 'MID', Galio: 'MID', Hwei: 'MID',
+  Irelia: 'MID', Kassadin: 'MID', Katarina: 'MID', Leblanc: 'MID', Lissandra: 'MID',
+  Malzahar: 'MID', Orianna: 'MID', Qiyana: 'MID', Ryze: 'MID', Sylas: 'MID',
+  Syndra: 'MID', Taliyah: 'MID', TwistedFate: 'MID', Veigar: 'MID', Vex: 'MID',
+  Viktor: 'MID', Vladimir: 'MID', Yasuo: 'MID', Yone: 'MID', Zed: 'MID', Zoe: 'MID',
+  Ziggs: 'MID', Neeko: 'MID',
+  // ADC
+  Aphelios: 'ADC', Ashe: 'ADC', Caitlyn: 'ADC', Corki: 'ADC', Draven: 'ADC',
+  Ezreal: 'ADC', Jhin: 'ADC', Jinx: 'ADC', Kaisa: 'ADC', Kalista: 'ADC',
+  KogMaw: 'ADC', Lucian: 'ADC', MissFortune: 'ADC', Nilah: 'ADC', Samira: 'ADC',
+  Sivir: 'ADC', Smolder: 'ADC', Tristana: 'ADC', Twitch: 'ADC', Varus: 'ADC',
+  Vayne: 'ADC', Xayah: 'ADC', Zeri: 'ADC',
+  // SUPPORT
+  Alistar: 'SUPPORT', Bard: 'SUPPORT', Blitzcrank: 'SUPPORT', Brand: 'SUPPORT',
+  Braum: 'SUPPORT', Janna: 'SUPPORT', Karma: 'SUPPORT', Leona: 'SUPPORT',
+  Lulu: 'SUPPORT', Lux: 'SUPPORT', Milio: 'SUPPORT', Morgana: 'SUPPORT',
+  Nami: 'SUPPORT', Nautilus: 'SUPPORT', Pyke: 'SUPPORT', Rakan: 'SUPPORT',
+  Rell: 'SUPPORT', Renata: 'SUPPORT', Senna: 'SUPPORT', Seraphine: 'SUPPORT',
+  Sona: 'SUPPORT', Soraka: 'SUPPORT', Swain: 'SUPPORT', TahmKench: 'SUPPORT',
+  Taric: 'SUPPORT', Thresh: 'SUPPORT', Velkoz: 'SUPPORT', Xerath: 'SUPPORT',
+  Yuumi: 'SUPPORT', Zilean: 'SUPPORT', Zyra: 'SUPPORT'
+}
+
+/** Order a team's players into TOP → JUNGLE → MID → ADC → SUPPORT (best effort). */
+export function orderByRole<T extends { championImage: string }>(players: T[]): T[] {
+  const slots: (T | null)[] = [null, null, null, null, null]
+  const leftover: T[] = []
+  for (const p of players) {
+    const role = CHAMP_ROLE[p.championImage]
+    const idx = role != null ? ROLE_ORDER[role] : -1
+    if (idx >= 0 && slots[idx] == null) slots[idx] = p
+    else leftover.push(p)
+  }
+  let li = 0
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i] == null && li < leftover.length) slots[i] = leftover[li++]
+  }
+  const ordered = slots.filter((x): x is T => x != null)
+  return ordered.concat(leftover.slice(li))
 }
 
 export function fmtRank(
