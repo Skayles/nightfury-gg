@@ -26,6 +26,11 @@ export interface MatchDetails {
   items: number[]
   spell1: number
   spell2: number
+  keystone: number
+  primaryStyle: number
+  subStyle: number
+  runes: number[]
+  shards: number[]
 }
 
 export interface ScorePlayer {
@@ -249,7 +254,12 @@ export function parseGame(game: any, myPuuid: string): MatchRecord | null {
     largestMultiKill: num(s.largestMultiKill),
     items: [s.item0, s.item1, s.item2, s.item3, s.item4, s.item5, s.item6].map(num),
     spell1: num(me.spell1Id),
-    spell2: num(me.spell2Id)
+    spell2: num(me.spell2Id),
+    keystone: num(s.perk0),
+    primaryStyle: num(s.perkPrimaryStyle),
+    subStyle: num(s.perkSubStyle),
+    runes: [s.perk0, s.perk1, s.perk2, s.perk3, s.perk4, s.perk5].map(num),
+    shards: [s.statPerk0, s.statPerk1, s.statPerk2].map(num)
   }
 
   return {

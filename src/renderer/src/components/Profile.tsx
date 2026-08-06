@@ -9,8 +9,10 @@ import { useT, type TFunc } from '../i18n'
 import FilterBar from './FilterBar'
 import MatchDetail from './MatchDetail'
 import ProfileCharts from './ProfileCharts'
+import SessionAnalysis from './SessionAnalysis'
 import ItemRow from './ItemRow'
-import { applyFilter, aggregate, perChampion, fmtDate, champIcon, profileIcon, fmtRank, gamesLabel } from '../lib'
+import { applyFilter, aggregate, perChampion, fmtDate, champIcon, profileIcon, fmtRank, gamesLabel, runeIcon } from '../lib'
+import SpellPair from './SpellPair'
 
 const NO_FILTER: MatchFilter = { queueId: null, champion: null, result: null, sinceDays: null }
 
@@ -65,8 +67,34 @@ function MatchRow({
           {m.kills}/{m.deaths}/{m.assists}
           <span className="ml-2 text-mute">{kda}</span>
         </div>
-        <div className="hidden flex-1 justify-center lg:flex">
+        <div className="hidden flex-1 items-center justify-center gap-3 lg:flex">
+          <SpellPair
+            spell1={m.details?.spell1}
+            spell2={m.details?.spell2}
+            ddragon={ddragon}
+            size={34}
+          />
           <ItemRow items={m.details?.items ?? []} ddragon={ddragon} size={34} />
+          <div className="flex w-[54px] shrink-0 items-center justify-center gap-1">
+            {m.details?.keystone && runeIcon(ddragon?.runes?.[m.details.keystone]?.icon) ? (
+              <img
+                src={runeIcon(ddragon?.runes?.[m.details.keystone]?.icon) as string}
+                alt=""
+                className="h-8 w-8 rounded-full bg-night ring-1 ring-edge/60"
+              />
+            ) : (
+              <div className="h-8 w-8 rounded-full bg-night/30" />
+            )}
+            {m.details?.subStyle && runeIcon(ddragon?.runeStyles?.[m.details.subStyle]?.icon) ? (
+              <img
+                src={runeIcon(ddragon?.runeStyles?.[m.details.subStyle]?.icon) as string}
+                alt=""
+                className="h-5 w-5"
+              />
+            ) : (
+              <div className="h-5 w-5" />
+            )}
+          </div>
         </div>
         <div className="ml-auto flex items-center gap-3 text-sm text-mute">
           <span>
@@ -101,6 +129,7 @@ export default function Profile({
   const [confirmReset, setConfirmReset] = useState(false)
   const [summoner, setSummoner] = useState<SummonerProfile | null>(null)
   const [view, setView] = useState<'overview' | 'charts'>('overview')
+  const [showSession, setShowSession] = useState(false)
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchMsg, setSearchMsg] = useState<string | null>(null)
@@ -333,7 +362,7 @@ export default function Profile({
 
       <FilterBar matches={activeMatches} filter={filter} onChange={setFilter} />
 
-      <div className="mb-4 mt-3 flex gap-1">
+      <div className="mb-4 mt-3 flex items-center gap-1">
         {(['overview', 'charts'] as const).map((v) => (
           <button
             key={v}
@@ -346,6 +375,12 @@ export default function Profile({
             {v === 'overview' ? t('profile.tabOverview') : t('profile.tabCharts')}
           </button>
         ))}
+        <button
+          onClick={() => setShowSession(true)}
+          className="ml-auto rounded-md border border-edge px-3 py-1.5 text-sm font-medium text-slate-200 transition-colors hover:border-teal hover:text-teal"
+        >
+          {t('profile.sessionAnalysis')}
+        </button>
       </div>
 
       {busy ? (
@@ -430,6 +465,9 @@ export default function Profile({
 
       {selected && (
         <MatchDetail match={selected} ddragon={ddragon} onClose={() => setSelected(null)} />
+      )}
+      {showSession && (
+        <SessionAnalysis matches={filtered} ddragon={ddragon} onClose={() => setShowSession(false)} />
       )}
     </section>
   )

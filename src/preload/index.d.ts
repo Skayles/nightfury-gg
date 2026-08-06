@@ -20,6 +20,11 @@ export interface MatchDetails {
   items: number[]
   spell1: number
   spell2: number
+  keystone: number
+  primaryStyle: number
+  subStyle: number
+  runes: number[]
+  shards: number[]
 }
 
 export interface ScorePlayer {
@@ -65,6 +70,10 @@ export interface DdragonInfo {
   champions: Record<number, string>
   champNames: Record<number, string>
   items: Record<number, { name: string; description: string }>
+  spells: Record<number, string>
+  spellInfo: Record<number, { name: string; desc: string }>
+  runes: Record<number, { icon: string; name: string; desc: string }>
+  runeStyles: Record<number, { icon: string; name: string }>
 }
 
 export interface SummonerProfile {

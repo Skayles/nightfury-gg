@@ -1,8 +1,164 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import type { MatchRecord, DdragonInfo, TimelineEvent, ScorePlayer } from '../../../preload/index.d'
+import { useEffect, useState, type ReactNode, type MouseEvent } from 'react'
+import { createPortal } from 'react-dom'
+import type { MatchRecord, MatchDetails, DdragonInfo, TimelineEvent, ScorePlayer } from '../../../preload/index.d'
 import { useT, type TFunc } from '../i18n'
-import { champIcon, fmtDate, fmtDuration, fmtNum } from '../lib'
+import { champIcon, fmtDate, fmtDuration, fmtNum, runeIcon, shardInfo, treeColor } from '../lib'
 import ItemRow from './ItemRow'
+
+function RunesTab({
+  d,
+  ddragon,
+  t
+}: {
+  d: MatchDetails | null
+  ddragon: DdragonInfo | null
+  t: TFunc
+}): JSX.Element {
+  const [tip, setTip] = useState<{
+    x: number
+    y: number
+    below: boolean
+    name: string
+    desc: string
+  } | null>(null)
+
+  if (!d || !d.runes || d.runes.every((r) => !r)) {
+    return <div className="py-10 text-center text-sm text-mute">{t('detail.noRunes')}</div>
+  }
+  const runes = ddragon?.runes ?? {}
+  const styles = ddragon?.runeStyles ?? {}
+
+  const show = (
+    e: MouseEvent<HTMLDivElement>,
+    info: { name: string; desc: string } | null
+  ): void => {
+    if (!info) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const below = r.top < 180
+    setTip({ x: r.left + r.width / 2, y: below ? r.bottom + 8 : r.top - 8, below, name: info.name, desc: info.desc })
+  }
+
+  const runeCell = (id: number, big: boolean, accent: string): JSX.Element | null => {
+    const info = runes[id]
+    if (!info && !id) return null
+    const src = runeIcon(info?.icon)
+    const dim = big ? 'h-16 w-16' : 'h-10 w-10'
+    return (
+      <div
+        key={id}
+        className="flex items-center gap-3"
+        onMouseEnter={(e) => show(e, info ?? null)}
+        onMouseLeave={() => setTip(null)}
+      >
+        <div
+          className={dim + ' shrink-0 rounded-full bg-black/40 p-0.5'}
+          style={{ boxShadow: `0 0 0 2px ${accent}66` }}
+        >
+          {src ? (
+            <img src={src} alt="" className="h-full w-full rounded-full" />
+          ) : (
+            <div className="h-full w-full rounded-full bg-night/40" />
+          )}
+        </div>
+        <span className={(big ? 'text-sm font-semibold ' : 'text-xs ') + 'text-slate-200'}>
+          {info?.name ?? ''}
+        </span>
+      </div>
+    )
+  }
+
+  const shardCell = (id: number): JSX.Element => {
+    const info = shardInfo(id)
+    const src = runeIcon(info?.icon)
+    return (
+      <div
+        key={id}
+        className="relative"
+        onMouseEnter={(e) => show(e, info)}
+        onMouseLeave={() => setTip(null)}
+      >
+        {src ? (
+          <img src={src} alt="" className="h-7 w-7 rounded-full bg-black/40 ring-1 ring-edge/60" />
+        ) : (
+          <div className="h-7 w-7 rounded-full bg-night/40" />
+        )}
+      </div>
+    )
+  }
+
+  const primaryColor = treeColor(d.primaryStyle)
+  const subColor = treeColor(d.subStyle)
+  const hasShards = d.shards && d.shards.some((x) => x)
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      {/* Primary tree */}
+      <div
+        className="rounded-xl border bg-panel2/30 p-5"
+        style={{ borderColor: `${primaryColor}55` }}
+      >
+        <div className="mb-4 flex items-center gap-2">
+          {runeIcon(styles[d.primaryStyle]?.icon) && (
+            <img src={runeIcon(styles[d.primaryStyle]?.icon) as string} alt="" className="h-7 w-7" />
+          )}
+          <span className="font-display text-base" style={{ color: primaryColor }}>
+            {styles[d.primaryStyle]?.name ?? ''}
+          </span>
+        </div>
+        <div className="space-y-4">
+          {runeCell(d.runes[0], true, primaryColor)}
+          <div className="ml-2 space-y-3 border-l border-edge/50 pl-4">
+            {[d.runes[1], d.runes[2], d.runes[3]].map((id) => runeCell(id, false, primaryColor))}
+          </div>
+        </div>
+      </div>
+
+      {/* Secondary tree + shards */}
+      <div className="rounded-xl border bg-panel2/30 p-5" style={{ borderColor: `${subColor}55` }}>
+        <div className="mb-4 flex items-center gap-2">
+          {runeIcon(styles[d.subStyle]?.icon) && (
+            <img src={runeIcon(styles[d.subStyle]?.icon) as string} alt="" className="h-7 w-7" />
+          )}
+          <span className="font-display text-base" style={{ color: subColor }}>
+            {styles[d.subStyle]?.name ?? ''}
+          </span>
+        </div>
+        <div className="space-y-3">
+          {[d.runes[4], d.runes[5]].map((id) => runeCell(id, false, subColor))}
+        </div>
+
+        {hasShards && (
+          <>
+            <div className="my-4 h-px bg-edge/50" />
+            <div className="mb-2 text-[11px] uppercase tracking-wide text-mute">
+              {t('detail.shards')}
+            </div>
+            <div className="flex items-center gap-3">{d.shards.map((id) => shardCell(id))}</div>
+          </>
+        )}
+      </div>
+
+      {tip &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              left: tip.x,
+              top: tip.y,
+              transform: `translate(-50%, ${tip.below ? '0' : '-100%'})`,
+              zIndex: 1000,
+              width: 280
+            }}
+            className="pointer-events-none rounded-lg border border-edge bg-night p-3 text-left text-[11px] leading-relaxed text-slate-300 shadow-2xl"
+          >
+            <div className="mb-1 font-display text-sm text-gold">{tip.name}</div>
+            <div>{tip.desc}</div>
+          </div>,
+          document.body
+        )}
+    </div>
+  )
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
   return (
@@ -236,7 +392,7 @@ export default function MatchDetail({
   const kda =
     m.deaths > 0 ? ((m.kills + m.assists) / m.deaths).toFixed(2) : (m.kills + m.assists).toFixed(2)
 
-  const [tab, setTab] = useState<'perso' | 'full'>('perso')
+  const [tab, setTab] = useState<'perso' | 'runes' | 'full'>('perso')
   const [events, setEvents] = useState<TimelineEvent[] | null>(null)
   const [loadingTl, setLoadingTl] = useState(true)
 
@@ -261,7 +417,7 @@ export default function MatchDetail({
     if (d.doubleKills) multis.push(`${d.doubleKills}× Double`)
   }
 
-  function TabButton({ id, label }: { id: 'perso' | 'full'; label: string }): JSX.Element {
+  function TabButton({ id, label }: { id: 'perso' | 'runes' | 'full'; label: string }): JSX.Element {
     const active = tab === id
     return (
       <button
@@ -327,6 +483,7 @@ export default function MatchDetail({
         {/* Tabs */}
         <div className="flex gap-1 border-b border-edge px-6 pt-3">
           <TabButton id="perso" label={t('detail.tabPerso')} />
+          <TabButton id="runes" label={t('detail.tabRunes')} />
           <TabButton id="full" label={t('detail.tabFull')} />
         </div>
 
@@ -394,6 +551,10 @@ export default function MatchDetail({
               </div>
             )}
             {!d && <div className="text-xs text-mute">{t('detail.noDetails')}</div>}
+          </div>
+        ) : tab === 'runes' ? (
+          <div className="p-6">
+            <RunesTab d={d ?? null} ddragon={ddragon} t={t} />
           </div>
         ) : (
           <div className="p-6">

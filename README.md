@@ -44,12 +44,17 @@ reads as a stats companion.
   result, period), aggregate stats (winrate, KDA, CS/min, KP, vision) and
   per-champion breakdowns, split into two sub-tabs:
   - **Overview** — the summoner header (icon, level, rank), aggregates and the
-    clickable match history.
+    clickable match history. Each row also shows the **summoner spells, items and
+    runes** used (with hover tooltips).
   - **Charts** — recent form, a cumulative **winrate trend**, **win/loss** and
     **by-queue** donut charts, and your most-played champions.
-  - Click any match to open it in two tabs: **My game** (full stats + a
-    **highlights timeline**: first blood, kills & deaths, dragons, Baron, towers…)
-    and **Scoreboard** (all 10 players with KDA, CS, damage, gold and items).
+  - Click any match to open it in three tabs: **My game** (full stats + a
+    **highlights timeline**: first blood, kills & deaths, dragons, Baron, towers…),
+    **Runes** (a full LoL-style rune page with stat shards and tooltips), and
+    **Scoreboard** (all 10 players with KDA, CS, damage, gold and items).
+  - **Session analysis** — groups your games into play sessions (detected from
+    your own cadence) and surfaces trends: fatigue over a session, form after a
+    break, best time of day, tilt after a loss, weekend vs weekday, and more.
 - **Live / Lobby** — a **loading-screen view** of the 10 players, sorted by role
   (top → jungle → mid → adc → support), each shown with the champion's art (right
   skin), Riot ID and **rank**. Includes an **Open on Porofessor** button, and the
@@ -103,6 +108,16 @@ key expires every 24h.
 > code can always be read, so the key would leak. The only safe place for a shared
 > production key is a backend you host. The "everyone brings their own key" model
 > above avoids that problem entirely.
+
+### Performance
+
+- **API response cache** — Riot API calls are cached in memory with per-type
+  lifetimes (finished match details are kept for hours, ranks/levels for minutes,
+  live games for seconds), so reopening a profile or re-scouting is near-instant
+  and uses far fewer requests.
+- **Data Dragon disk cache** — champion/item/rune/spell data is cached on disk per
+  patch, so after the first launch startup only fetches the tiny version file and
+  loads everything locally. It also keeps working offline from the cached copy.
 
 ### ⚠️ Windows SmartScreen / antivirus warning
 
@@ -212,13 +227,19 @@ comprenne tout de suite qu'il s'agit d'un compagnon de stats.
   résultat, période), des stats agrégées (winrate, KDA, CS/min, KP, vision) et
   le détail par champion, réparti en deux sous-onglets :
   - **Vue d'ensemble** — l'en-tête d'invocateur (icône, niveau, rang), les
-    agrégats et l'historique cliquable.
+    agrégats et l'historique cliquable. Chaque ligne montre aussi les **sorts
+    d'invocateur, objets et runes** utilisés (avec infobulles au survol).
   - **Graphiques** — la forme récente, une **courbe de winrate**, des camemberts
     **victoires/défaites** et **par file**, et vos champions les plus joués.
-  - Cliquez sur une partie pour l'ouvrir en deux onglets : **Ma partie** (stats
+  - Cliquez sur une partie pour l'ouvrir en trois onglets : **Ma partie** (stats
     détaillées + une **frise des faits marquants** : first blood, kills et morts,
-    dragons, Baron, tours…) et **Scoreboard** (les 10 joueurs avec KDA, CS,
-    dégâts, or et objets).
+    dragons, Baron, tours…), **Runes** (une page de runes façon LoL avec les
+    fragments de stats et des infobulles) et **Scoreboard** (les 10 joueurs avec
+    KDA, CS, dégâts, or et objets).
+  - **Analyse de session** — regroupe vos parties en sessions (détectées d'après
+    votre propre cadence) et fait ressortir des tendances : fatigue en fin de
+    session, forme après une pause, meilleure heure de jeu, tilt après une
+    défaite, week-end vs semaine, etc.
 - **Live / Lobby** — une **vue écran de chargement** des 10 joueurs, **triés par
   rôle** (top → jungle → mid → adc → support), chacun avec l'art du champion (bon
   skin), son Riot ID et son **rang**. Avec un bouton **Ouvrir sur Porofessor**, et
@@ -278,6 +299,18 @@ incluse dans l'app ni poussée sur le dépôt. Ce sont des heuristiques best-eff
 > le code côté client est toujours lisible, la clé fuiterait. Le seul endroit sûr
 > pour une clé de production partagée est un backend que vous hébergez. Le modèle
 > « chacun sa clé » ci-dessus évite totalement ce problème.
+
+### Performances
+
+- **Cache des réponses API** — les appels à l'API Riot sont mis en cache en
+  mémoire avec une durée adaptée à chaque type (détails de parties terminées
+  gardés plusieurs heures, rangs/niveaux quelques minutes, parties en cours
+  quelques secondes) : rouvrir un profil ou re-scouter devient quasi instantané
+  et consomme beaucoup moins de requêtes.
+- **Cache disque de Data Dragon** — les données champions/objets/runes/sorts sont
+  mises en cache sur le disque par patch : après le premier lancement, le
+  démarrage ne récupère plus que le petit fichier de version et charge tout en
+  local. L'app reste aussi utilisable **hors-ligne** grâce à cette copie.
 
 
 ### ⚠️ Avertissement SmartScreen / antivirus (Windows)

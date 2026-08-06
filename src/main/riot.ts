@@ -48,7 +48,46 @@ export function routing(region: string): { platform: string; regional: string } 
   return { platform: PLATFORM[r] ?? 'euw1', regional: REGIONAL[r] ?? 'europe' }
 }
 
+// ---- In-memory response cache ----------------------------------------------
+// Keyed by host+path. TTL depends on how fast the data changes: finished match
+// details are effectively immutable, ranks/levels change slowly, live games fast.
+interface CacheEntry {
+  expires: number
+  data: unknown
+}
+const cache = new Map<string, CacheEntry>()
+
+function ttlFor(path: string): number {
+  if (path.includes('/lol/status/')) return 0 // never cache key validation
+  if (path.includes('/matches/by-puuid/')) return 2 * 60 * 1000 // match id list
+  if (path.includes('/lol/match/v5/matches/')) return 6 * 60 * 60 * 1000 // match detail (immutable)
+  if (path.startsWith('/riot/account/')) return 60 * 60 * 1000 // riot id -> puuid
+  if (path.includes('/lol/league/')) return 3 * 60 * 1000 // rank / winrate
+  if (path.includes('/lol/summoner/')) return 5 * 60 * 1000 // level / icon
+  if (path.includes('/lol/spectator/')) return 30 * 1000 // live game
+  return 60 * 1000
+}
+
+function pruneCache(): void {
+  const now = Date.now()
+  for (const [k, v] of cache) if (v.expires <= now) cache.delete(k)
+  // Hard cap: drop the oldest entries (Map keeps insertion order).
+  if (cache.size > 600) {
+    let toDrop = cache.size - 500
+    for (const k of cache.keys()) {
+      if (toDrop-- <= 0) break
+      cache.delete(k)
+    }
+  }
+}
+
 async function riotGet<T>(key: string, host: string, path: string): Promise<T> {
+  const ttl = ttlFor(path)
+  const ck = host + path
+  if (ttl > 0) {
+    const hit = cache.get(ck)
+    if (hit && hit.expires > Date.now()) return hit.data as T
+  }
   const res = await fetch(`https://${host}.api.riotgames.com${path}`, {
     headers: { 'X-Riot-Token': key }
   })
@@ -57,7 +96,12 @@ async function riotGet<T>(key: string, host: string, path: string): Promise<T> {
     err.status = res.status
     throw err
   }
-  return (await res.json()) as T
+  const data = (await res.json()) as T
+  if (ttl > 0) {
+    cache.set(ck, { expires: Date.now() + ttl, data })
+    if (cache.size > 600) pruneCache()
+  }
+  return data
 }
 
 /** Validate a key by hitting a cheap authenticated endpoint. */
@@ -346,7 +390,19 @@ export function parseMatchV5(match: any, puuid: string): MatchRecord | null {
       largestMultiKill: nn(me.largestMultiKill),
       items: [me.item0, me.item1, me.item2, me.item3, me.item4, me.item5, me.item6].map(nn),
       spell1: nn(me.summoner1Id),
-      spell2: nn(me.summoner2Id)
+      spell2: nn(me.summoner2Id),
+      keystone: nn(me.perks?.styles?.[0]?.selections?.[0]?.perk),
+      primaryStyle: nn(me.perks?.styles?.[0]?.style),
+      subStyle: nn(me.perks?.styles?.[1]?.style),
+      runes: [
+        ...(me.perks?.styles?.[0]?.selections ?? []).map((x: any) => nn(x.perk)),
+        ...(me.perks?.styles?.[1]?.selections ?? []).map((x: any) => nn(x.perk))
+      ],
+      shards: [
+        nn(me.perks?.statPerks?.offense),
+        nn(me.perks?.statPerks?.flex),
+        nn(me.perks?.statPerks?.defense)
+      ]
     },
     players
   }

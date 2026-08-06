@@ -16,8 +16,8 @@ export default {
         mute: '#7C93A8'
       },
       fontFamily: {
-        display: ['"Beaufort for LOL"', 'Georgia', 'serif'],
-        body: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['Rajdhani', '"Inter Variable"', 'Inter', 'system-ui', 'sans-serif'],
+        body: ['"Inter Variable"', 'Inter', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace']
       }
     }

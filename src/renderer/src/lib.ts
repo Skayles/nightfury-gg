@@ -101,6 +101,50 @@ export function itemIcon(version: string, id: number): string | null {
   return `${DD}/${version}/img/item/${id}.png`
 }
 
+export function spellIcon(
+  version: string,
+  spells: Record<number, string> | undefined,
+  id: number
+): string | null {
+  const img = spells?.[id]
+  if (!version || !img) return null
+  return `${DD}/${version}/img/spell/${img}`
+}
+
+// Rune/rune-style icons are served unversioned under /cdn/img/.
+export function runeIcon(icon: string | undefined): string | null {
+  if (!icon) return null
+  return `https://ddragon.leagueoflegends.com/cdn/img/${icon}`
+}
+
+// Stat shards aren't in Data Dragon's rune data, so we map them here.
+const SHARD_INFO: Record<number, { icon: string; name: string; desc: string }> = {
+  5008: { icon: 'perk-images/StatMods/StatModsAdaptiveForceIcon.png', name: 'Force adaptative', desc: '+9 Force adaptative' },
+  5005: { icon: 'perk-images/StatMods/StatModsAttackSpeedIcon.png', name: "Vitesse d'attaque", desc: "+10% Vitesse d'attaque" },
+  5007: { icon: 'perk-images/StatMods/StatModsCDRScalingIcon.png', name: 'Accélération de compétence', desc: '+8 Accélération de compétence' },
+  5010: { icon: 'perk-images/StatMods/StatModsMovementSpeedIcon.png', name: 'Vitesse de déplacement', desc: '+2% Vitesse de déplacement' },
+  5001: { icon: 'perk-images/StatMods/StatModsHealthScalingIcon.png', name: 'Vie (évolutive)', desc: '+10-180 Vie (selon le niveau)' },
+  5011: { icon: 'perk-images/StatMods/StatModsHealthPlusIcon.png', name: 'Vie', desc: '+65 Vie' },
+  5013: { icon: 'perk-images/StatMods/StatModsTenacityIcon.png', name: 'Ténacité et résist. ralent.', desc: '+10% Ténacité et résistance aux ralentissements' }
+}
+
+export function shardInfo(id: number): { icon: string; name: string; desc: string } | null {
+  return SHARD_INFO[id] ?? null
+}
+
+// Accent colour per rune tree (style id), matching LoL's palette.
+const TREE_COLOR: Record<number, string> = {
+  8000: '#C8AA6E', // Precision
+  8100: '#D0424E', // Domination
+  8200: '#9B6BF0', // Sorcery
+  8300: '#49AAB9', // Inspiration
+  8400: '#5CBE63' // Resolve
+}
+
+export function treeColor(styleId: number | undefined): string {
+  return TREE_COLOR[styleId ?? 0] ?? '#7C93A8'
+}
+
 export function profileIcon(version: string, iconId: number): string | null {
   if (!version) return null
   return `${DD}/${version}/img/profileicon/${iconId}.png`
