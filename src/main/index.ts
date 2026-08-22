@@ -158,10 +158,25 @@ function refreshTrayMenu(): void {
   )
 }
 
+function iconPath(name: string): string {
+  // Packaged: icons are copied to resources/ (see electron-builder.yml).
+  // Dev: read straight from the build folder.
+  return app.isPackaged
+    ? join(process.resourcesPath, name)
+    : join(__dirname, '../../build', name)
+}
+
 function createTray(): void {
   if (tray) return
-  const img = nativeImage.createFromPath(join(__dirname, '../../build/icon.png'))
-  tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img)
+  // Windows tray icons are tiny — prefer the .ico, fall back to a resized .png.
+  let img = nativeImage.createFromPath(iconPath('icon.ico'))
+  if (img.isEmpty()) {
+    img = nativeImage.createFromPath(iconPath('icon.png'))
+  }
+  if (!img.isEmpty()) {
+    img = img.resize({ width: 16, height: 16 })
+  }
+  tray = new Tray(img)
   tray.setToolTip('Nightfury.gg')
   refreshTrayMenu()
   tray.on('click', () => {
@@ -183,7 +198,7 @@ function createWindow(): void {
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: { color: '#0B1622', symbolColor: '#C9D6E3', height: 38 },
-    icon: join(__dirname, '../../build/icon.png'),
+    icon: iconPath('icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
