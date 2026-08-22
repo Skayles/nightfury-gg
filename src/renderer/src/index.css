@@ -2,6 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  /* Reusable surface tokens for a consistent, "pro dashboard" look. */
+  .card {
+    @apply rounded-xl border border-edge/80 bg-panel;
+  }
+  .card-2 {
+    @apply rounded-xl border border-edge/60 bg-panel2/40;
+  }
+  .tile {
+    @apply rounded-lg border border-edge/60 bg-panel2/30 px-4 py-3;
+  }
+  .dialog {
+    @apply rounded-2xl border border-edge bg-panel shadow-2xl shadow-black/50;
+  }
+  .section-label {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-mute;
+  }
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  /* Segmented control (sub-tabs) */
+  .segmented {
+    @apply inline-flex items-center gap-0.5 rounded-lg border border-edge/70 bg-panel2/40 p-0.5;
+  }
+  .segmented-item {
+    @apply rounded-md px-3 py-1.5 text-sm font-medium transition-colors;
+  }
+  .segmented-item-active {
+    @apply bg-panel text-teal shadow-sm shadow-black/30;
+  }
+  .segmented-item-idle {
+    @apply text-mute hover:text-slate-200;
+  }
+}
+
 :root {
   color-scheme: dark;
 }

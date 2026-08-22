@@ -37,6 +37,7 @@ export interface ScorePlayer {
   pid: number
   teamId: number
   name: string
+  tagLine: string
   championId: number
   kills: number
   deaths: number
@@ -194,9 +195,13 @@ export function parseGame(game: any, myPuuid: string): MatchRecord | null {
 
   // Full scoreboard (all 10 players) — names come from participantIdentities.
   const nameByPid = new Map<number, string>()
+  const tagByPid = new Map<number, string>()
   for (const pi of identities) {
     const pl = pi?.player
-    if (pl) nameByPid.set(pi.participantId, pl.gameName || pl.summonerName || '')
+    if (pl) {
+      nameByPid.set(pi.participantId, pl.gameName || pl.summonerName || '')
+      tagByPid.set(pi.participantId, pl.tagLine || '')
+    }
   }
   const players: ScorePlayer[] = participants.map((p) => {
     const st = p.stats ?? {}
@@ -204,6 +209,7 @@ export function parseGame(game: any, myPuuid: string): MatchRecord | null {
       pid: p.participantId,
       teamId: p.teamId,
       name: nameByPid.get(p.participantId) || '',
+      tagLine: tagByPid.get(p.participantId) || '',
       championId: p.championId,
       kills: num(st.kills),
       deaths: num(st.deaths),

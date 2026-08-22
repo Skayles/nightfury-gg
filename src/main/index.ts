@@ -5,6 +5,8 @@ import {
   ipcMain,
   dialog,
   Menu,
+  Tray,
+  nativeImage,
   type MenuItemConstructorOptions
 } from 'electron'
 import { join } from 'path'
@@ -28,6 +30,22 @@ import {
 import { LcuService, LcuStatus, SummonerProfile } from './lcu'
 import { getSettings, setSettings, MatchFilter } from './store'
 import {
+  engineInstalled,
+  downloadEngine,
+  removeEngine,
+  replayDir,
+  listReplays,
+  pickReplayFolder,
+  openReplay,
+  revealReplay,
+  deleteReplay,
+  startRecording,
+  stopRecording,
+  isRecording,
+  recordingInfo,
+  listAudioDevices
+} from './replay'
+import {
   validateKey,
   riotScout,
   accountByRiotId,
@@ -41,6 +59,8 @@ import { loadDdragon, ddragonInfo, championName, championIdFromImage } from './d
 import { initDiscord, setPresence, stopDiscord } from './discord'
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
 
 const GITHUB_REPO = 'Skayles/nightfury-gg'
 
@@ -110,6 +130,47 @@ function send(channel: string, payload?: unknown): void {
   mainWindow?.webContents.send(channel, payload)
 }
 
+function showWindow(): void {
+  if (!mainWindow) {
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function refreshTrayMenu(): void {
+  if (!tray) return
+  const en = getSettings().language === 'en'
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: en ? 'Open Nightfury.gg' : 'Ouvrir Nightfury.gg', click: () => showWindow() },
+      { type: 'separator' },
+      {
+        label: en ? 'Quit' : 'Quitter',
+        click: () => {
+          isQuitting = true
+          app.quit()
+        }
+      }
+    ])
+  )
+}
+
+function createTray(): void {
+  if (tray) return
+  const img = nativeImage.createFromPath(join(__dirname, '../../build/icon.png'))
+  tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img)
+  tray.setToolTip('Nightfury.gg')
+  refreshTrayMenu()
+  tray.on('click', () => {
+    if (mainWindow?.isVisible() && !mainWindow.isMinimized()) mainWindow.focus()
+    else showWindow()
+  })
+  tray.on('double-click', () => showWindow())
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -120,6 +181,8 @@ function createWindow(): void {
     backgroundColor: '#0B1622',
     title: 'Nightfury.gg',
     autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0B1622', symbolColor: '#C9D6E3', height: 38 },
     icon: join(__dirname, '../../build/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -128,6 +191,14 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+
+  // Close button hides to the system tray when enabled, instead of quitting.
+  mainWindow.on('close', (e) => {
+    if (getSettings().closeToTray && !isQuitting) {
+      e.preventDefault()
+      mainWindow?.hide()
+    }
+  })
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
@@ -191,10 +262,24 @@ function onMatches(records: MatchRecord[], reason: 'backfill' | 'game-end'): voi
 }
 
 function onStatus(status: LcuStatus): void {
-  if (status.state === 'in-game' && lastLcuState !== 'in-game') {
+  const enteredGame = status.state === 'in-game' && lastLcuState !== 'in-game'
+  const leftGame = lastLcuState === 'in-game' && status.state !== 'in-game'
+  if (enteredGame) {
     gameStartTs = Date.now()
     // gameData (champion) can take a few seconds to populate — refresh once.
     setTimeout(() => void updateDiscord(), 8000)
+    // Auto-record the game if enabled and the engine is present.
+    if (getSettings().replayAuto && !isRecording()) {
+      void startRecording().then((r) => {
+        if (r.ok) send('replay:recording-state', recordingInfo())
+      })
+    }
+  }
+  if (leftGame && getSettings().replayAuto && isRecording()) {
+    void stopRecording().then(() => {
+      send('replay:recording-state', recordingInfo())
+      send('replay:updated', listReplays())
+    })
   }
   lastLcuState = status.state
   lastStatus = status
@@ -210,6 +295,40 @@ function onProfile(profile: SummonerProfile): void {
 
 function registerIpc(): void {
   ipcMain.handle('matches:list', () => listMatches(300))
+
+  ipcMain.handle('replay:status', () => ({
+    installed: engineInstalled(),
+    folder: replayDir(),
+    replays: listReplays()
+  }))
+  ipcMain.handle('replay:download-engine', async () => {
+    try {
+      await downloadEngine((done, total) => send('replay:download-progress', { done, total }))
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: String((e as Error)?.message ?? e) }
+    }
+  })
+  ipcMain.handle('replay:remove-engine', () => removeEngine())
+  ipcMain.handle('replay:start-recording', async () => {
+    const r = await startRecording()
+    if (r.ok) send('replay:recording-state', recordingInfo())
+    return r
+  })
+  ipcMain.handle('replay:audio-devices', () => listAudioDevices())
+  ipcMain.handle('replay:stop-recording', async () => {
+    const r = await stopRecording()
+    send('replay:recording-state', recordingInfo())
+    send('replay:updated', listReplays())
+    return r
+  })
+  ipcMain.handle('replay:recording-info', () => recordingInfo())
+  ipcMain.handle('replay:list', () => listReplays())
+  ipcMain.handle('replay:pick-folder', () => pickReplayFolder())
+  ipcMain.handle('replay:open', (_e, path: string) => openReplay(path))
+  ipcMain.handle('replay:reveal', (_e, path: string) => revealReplay(path))
+  ipcMain.handle('replay:delete', (_e, path: string) => deleteReplay(path))
+
   ipcMain.handle('matches:all', () => allMatches())
   ipcMain.handle('matches:refresh', async () => {
     await lcu.refreshHistory('backfill')
@@ -237,6 +356,7 @@ function registerIpc(): void {
       await loadDdragon(patch.language === 'en' ? 'en_US' : 'fr_FR')
       send('ddragon:updated', ddragonInfo())
       updateDiscord()
+      refreshTrayMenu()
     }
     if (patch && typeof patch.discordEnabled === 'boolean') {
       if (patch.discordEnabled) {
@@ -395,6 +515,34 @@ app.whenReady().then(async () => {
   initDb()
   registerIpc()
   createWindow()
+  createTray()
+
+  app.on('before-quit', () => {
+    isQuitting = true
+  })
+  // Remove the tray icon cleanly so Windows doesn't leave a "ghost" icon that
+  // only disappears when the mouse hovers over the notification area.
+  const destroyTray = (): void => {
+    if (tray) {
+      try {
+        tray.destroy()
+      } catch {
+        /* already gone */
+      }
+      tray = null
+    }
+  }
+  app.on('will-quit', destroyTray)
+  // Ctrl+C in the dev terminal kills the process with a signal, which bypasses
+  // 'will-quit' — handle it explicitly so the tray icon is removed there too.
+  process.on('SIGINT', () => {
+    destroyTray()
+    process.exit(0)
+  })
+  process.on('SIGTERM', () => {
+    destroyTray()
+    process.exit(0)
+  })
 
   await loadDdragon(getSettings().language === 'en' ? 'en_US' : 'fr_FR')
 

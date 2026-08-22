@@ -339,6 +339,7 @@ export function parseMatchV5(match: any, puuid: string): MatchRecord | null {
     pid: nn(p.participantId),
     teamId: nn(p.teamId),
     name: p.riotIdGameName || p.summonerName || '',
+    tagLine: p.riotIdTagline || '',
     championId: nn(p.championId),
     kills: nn(p.kills),
     deaths: nn(p.deaths),
@@ -452,6 +453,13 @@ export interface PlayerProfileResult {
     rankedTier: string | null
     rankedDivision: string | null
     rankedLp: number | null
+    rankedWins: number | null
+    rankedLosses: number | null
+    flexTier: string | null
+    flexDivision: string | null
+    flexLp: number | null
+    flexWins: number | null
+    flexLosses: number | null
     region: string
   }
   matches?: MatchRecord[]
@@ -486,19 +494,34 @@ export async function playerProfile(
   let rankedTier: string | null = null
   let rankedDivision: string | null = null
   let rankedLp: number | null = null
+  let rankedWins: number | null = null
+  let rankedLosses: number | null = null
+  let flexTier: string | null = null
+  let flexDivision: string | null = null
+  let flexLp: number | null = null
+  let flexWins: number | null = null
+  let flexLosses: number | null = null
   try {
     const entries = await riotGet<LeagueEntry[]>(
       key,
       platform,
       `/lol/league/v4/entries/by-puuid/${acc.puuid}`
     )
-    const solo =
-      entries.find((e) => e.queueType === 'RANKED_SOLO_5x5') ??
-      entries.find((e) => e.queueType === 'RANKED_FLEX_SR')
+    const solo = entries.find((e) => e.queueType === 'RANKED_SOLO_5x5')
     if (solo?.tier) {
       rankedTier = solo.tier
       rankedDivision = solo.rank ?? null
       rankedLp = typeof solo.leaguePoints === 'number' ? solo.leaguePoints : null
+      rankedWins = typeof solo.wins === 'number' ? solo.wins : null
+      rankedLosses = typeof solo.losses === 'number' ? solo.losses : null
+    }
+    const flex = entries.find((e) => e.queueType === 'RANKED_FLEX_SR')
+    if (flex?.tier) {
+      flexTier = flex.tier
+      flexDivision = flex.rank ?? null
+      flexLp = typeof flex.leaguePoints === 'number' ? flex.leaguePoints : null
+      flexWins = typeof flex.wins === 'number' ? flex.wins : null
+      flexLosses = typeof flex.losses === 'number' ? flex.losses : null
     }
   } catch {
     /* optional */
@@ -534,6 +557,13 @@ export async function playerProfile(
       rankedTier,
       rankedDivision,
       rankedLp,
+      rankedWins,
+      rankedLosses,
+      flexTier,
+      flexDivision,
+      flexLp,
+      flexWins,
+      flexLosses,
       region
     },
     matches

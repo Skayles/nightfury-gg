@@ -6,10 +6,11 @@ import type {
   LivePlayer,
   ScoutResult,
   ScoutDiag,
-  SummonerProfile
+  SummonerProfile,
+  MatchRecord
 } from '../../../preload/index.d'
 import { useT } from '../i18n'
-import { loadingArt, fmtRank, gamesLabel, orderByRole } from '../lib'
+import { loadingArt, fmtRank, gamesLabel, orderByRole, agoShort } from '../lib'
 import Toggle from './Toggle'
 
 const PREMADE_COLORS = ['#F59E0B', '#8B5CF6', '#22D3EE', '#EC4899']
@@ -18,12 +19,14 @@ function LoadingCard({
   p,
   s,
   side,
-  onOpen
+  onOpen,
+  lastSeen = 0
 }: {
   p: LivePlayer
   s?: ScoutResult
   side: 'blue' | 'red'
   onOpen?: () => void
+  lastSeen?: number
 }): JSX.Element {
   const t = useT()
   const art = loadingArt(p.championImage, p.skinId)
@@ -40,6 +43,18 @@ function LoadingCard({
       }
     >
       <span className={'absolute inset-x-0 top-0 z-10 h-1 ' + topBorder} />
+      {lastSeen > 0 && (
+        <span
+          className="absolute left-1.5 top-2.5 z-20 flex items-center gap-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-teal ring-1 ring-teal/40"
+          title={t('live.lastMet').replace('{ago}', agoShort(lastSeen, t))}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
+            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
+            <circle cx="12" cy="12" r="2.5" />
+          </svg>
+          {agoShort(lastSeen, t)}
+        </span>
+      )}
       {art ? (
         <img
           src={art}
@@ -97,7 +112,10 @@ function Team({
   players,
   scout,
   side,
-  onOpenProfile
+  onOpenProfile,
+  encounters,
+  meNameLower,
+  selfGroup
 }: {
   label: string
   color: string
@@ -105,6 +123,9 @@ function Team({
   scout: Record<string, ScoutResult>
   side: 'blue' | 'red'
   onOpenProfile?: (gameName: string, tagLine: string) => void
+  encounters: Map<string, number>
+  meNameLower: string
+  selfGroup: number
 }): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -113,15 +134,23 @@ function Team({
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-300">{label}</span>
       </div>
       <div className="flex min-h-0 flex-1 items-stretch justify-center gap-3">
-        {orderByRole(players).map((p, i) => (
-          <LoadingCard
-            key={i}
-            p={p}
-            s={scout[p.puuid]}
-            side={side}
-            onOpen={onOpenProfile ? () => onOpenProfile(p.name, p.tagLine) : undefined}
-          />
-        ))}
+        {orderByRole(players).map((p, i) => {
+          const nameLower = p.name.toLowerCase()
+          const isSelf = !!meNameLower && nameLower === meNameLower
+          const s = scout[p.puuid]
+          const premadeWithMe = selfGroup > 0 && s?.premadeGroup === selfGroup && !isSelf
+          const met = !isSelf && !premadeWithMe ? encounters.get(nameLower) ?? 0 : 0
+          return (
+            <LoadingCard
+              key={i}
+              p={p}
+              s={s}
+              side={side}
+              lastSeen={met}
+              onOpen={onOpenProfile ? () => onOpenProfile(p.name, p.tagLine) : undefined}
+            />
+          )
+        })}
       </div>
     </div>
   )
@@ -132,13 +161,15 @@ export default function LivePanel({
   settings,
   onChanged,
   onGoToOptions,
-  onOpenProfile
+  onOpenProfile,
+  matches
 }: {
   lcu: LcuStatus
   settings: AppSettings
   onChanged: () => void
   onGoToOptions: () => void
   onOpenProfile: (gameName: string, tagLine: string) => void
+  matches: MatchRecord[]
 }): JSX.Element {
   const t = useT()
   const inGame = lcu.state === 'in-game'
@@ -211,6 +242,30 @@ export default function LivePanel({
       : null
 
   const cardOpen = settings.riotApiKey ? onOpenProfile : undefined
+
+  // "Already encountered": the most recent past game (in the connected
+  // account's history) where each player name appeared. Self is excluded.
+  const meNameLower = (summoner?.gameName ?? '').toLowerCase()
+  const encounters = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const m of matches) {
+      if (!m.players?.length) continue
+      for (const p of m.players) {
+        const n = (p.name ?? '').toLowerCase()
+        if (!n || n === meNameLower) continue
+        if (m.playedAt > (map.get(n) ?? 0)) map.set(n, m.playedAt)
+      }
+    }
+    return map
+  }, [matches, meNameLower])
+
+  // Premade group of the connected player in a given game, so we can exclude
+  // their own duo from the "already met" badge.
+  function selfGroupOf(g: LiveGame | null, sc: Record<string, ScoutResult>): number {
+    if (!g || !meNameLower) return 0
+    const self = [...g.teamOne, ...g.teamTwo].find((p) => p.name.toLowerCase() === meNameLower)
+    return self ? sc[self.puuid]?.premadeGroup ?? 0 : 0
+  }
 
   useEffect(() => {
     if (!inGame || !settings.scoutingEnabled) {
@@ -344,6 +399,9 @@ export default function LivePanel({
             scout={searchScout}
             side="blue"
             onOpenProfile={cardOpen}
+            encounters={encounters}
+            meNameLower={meNameLower}
+            selfGroup={selfGroupOf(searchGame, searchScout)}
           />
           <Team
             label={t('live.teamRed')}
@@ -352,6 +410,9 @@ export default function LivePanel({
             scout={searchScout}
             side="red"
             onOpenProfile={cardOpen}
+            encounters={encounters}
+            meNameLower={meNameLower}
+            selfGroup={selfGroupOf(searchGame, searchScout)}
           />
         </div>
       ) : !settings.scoutingEnabled ? (
@@ -372,6 +433,9 @@ export default function LivePanel({
             scout={scout}
             side="blue"
             onOpenProfile={cardOpen}
+            encounters={encounters}
+            meNameLower={meNameLower}
+            selfGroup={selfGroupOf(game, scout)}
           />
           <Team
             label={t('live.teamRed')}
@@ -380,6 +444,9 @@ export default function LivePanel({
             scout={scout}
             side="red"
             onOpenProfile={cardOpen}
+            encounters={encounters}
+            meNameLower={meNameLower}
+            selfGroup={selfGroupOf(game, scout)}
           />
           {scouting ? (
             <p className="shrink-0 text-center text-[11px] text-mute">{t('live.scouting2')}</p>

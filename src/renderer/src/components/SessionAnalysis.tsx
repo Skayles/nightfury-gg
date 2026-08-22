@@ -310,7 +310,7 @@ export default function SessionAnalysis({
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-edge bg-panel shadow-2xl"
+        className="dialog relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden"
       >
         <div className="flex items-center justify-between border-b border-edge px-6 py-4">
           <div>

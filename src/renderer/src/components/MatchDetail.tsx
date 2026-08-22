@@ -215,6 +215,7 @@ function ScoreRow({
         className={'flex-1 truncate text-xs ' + (me ? 'font-semibold text-teal' : 'text-slate-100')}
       >
         {p.name || '—'}
+        {p.tagLine && <span className="text-mute"> #{p.tagLine}</span>}
       </span>
       <span className="w-16 text-center font-mono text-xs text-slate-200">
         {p.kills}/{p.deaths}/{p.assists}
@@ -438,7 +439,7 @@ export default function MatchDetail({
       onClick={onClose}
     >
       <div
-        className="max-h-[86vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-edge bg-panel shadow-2xl"
+        className="dialog max-h-[86vh] w-full max-w-3xl overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div

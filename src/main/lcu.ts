@@ -38,6 +38,13 @@ export interface SummonerProfile {
   rankedTier: string | null
   rankedDivision: string | null
   rankedLp: number | null
+  rankedWins: number | null
+  rankedLosses: number | null
+  flexTier: string | null
+  flexDivision: string | null
+  flexLp: number | null
+  flexWins: number | null
+  flexLosses: number | null
   region: string
 }
 
@@ -91,6 +98,13 @@ export class LcuService {
       let tier: string | null = null
       let division: string | null = null
       let lp: number | null = null
+      let wins: number | null = null
+      let losses: number | null = null
+      let flexTier: string | null = null
+      let flexDivision: string | null = null
+      let flexLp: number | null = null
+      let flexWins: number | null = null
+      let flexLosses: number | null = null
       try {
         const rs = await this.request<any>('GET', '/lol-ranked/v1/current-ranked-stats')
         const solo = rs?.queueMap?.RANKED_SOLO_5x5
@@ -98,6 +112,16 @@ export class LcuService {
           tier = solo.tier
           division = solo.division ?? null
           lp = typeof solo.leaguePoints === 'number' ? solo.leaguePoints : null
+          wins = typeof solo.wins === 'number' ? solo.wins : null
+          losses = typeof solo.losses === 'number' ? solo.losses : null
+        }
+        const flex = rs?.queueMap?.RANKED_FLEX_SR
+        if (flex && flex.tier) {
+          flexTier = flex.tier
+          flexDivision = flex.division ?? null
+          flexLp = typeof flex.leaguePoints === 'number' ? flex.leaguePoints : null
+          flexWins = typeof flex.wins === 'number' ? flex.wins : null
+          flexLosses = typeof flex.losses === 'number' ? flex.losses : null
         }
       } catch {
         /* rank optional */
@@ -136,6 +160,13 @@ export class LcuService {
         rankedTier: tier,
         rankedDivision: division,
         rankedLp: lp,
+        rankedWins: wins,
+        rankedLosses: losses,
+        flexTier,
+        flexDivision,
+        flexLp,
+        flexWins,
+        flexLosses,
         region
       })
 

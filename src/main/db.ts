@@ -16,7 +16,7 @@ interface Stored extends MatchRecord {
 
 // Bump when the way we COMPUTE/STORE a record changes (e.g. adding the full
 // scoreboard). On a bump we re-fetch every stored game once.
-const SCHEMA = 6
+const SCHEMA = 7
 
 // One month, used by the manual "free up space" action in Options.
 export const ONE_MONTH_MS = 31 * 24 * 60 * 60 * 1000

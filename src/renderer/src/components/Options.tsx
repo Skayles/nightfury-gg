@@ -79,6 +79,21 @@ export default function Options({
     onChanged()
   }
 
+  async function toggleTray(v: boolean): Promise<void> {
+    await window.api.setSettings({ closeToTray: v })
+    onChanged()
+  }
+
+  async function pickReplayFolder(): Promise<void> {
+    const f = await window.api.pickReplayFolder()
+    if (f) onChanged()
+  }
+
+  async function toggleAuto(v: boolean): Promise<void> {
+    await window.api.setSettings({ replayAuto: v })
+    onChanged()
+  }
+
   async function freeSpace(): Promise<void> {
     setPruning(true)
     setPruneMsg(null)
@@ -131,6 +146,43 @@ export default function Options({
             <div className="mt-0.5 text-xs text-mute">{t('options.discordHint')}</div>
           </div>
           <Toggle on={settings.discordEnabled} onChange={toggleDiscord} />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-edge bg-panel p-5">
+        <div className="flex items-center justify-between">
+          <div className="pr-4">
+            <div className="text-sm font-medium text-slate-200">{t('options.tray')}</div>
+            <div className="mt-0.5 text-xs text-mute">{t('options.trayHint')}</div>
+          </div>
+          <Toggle on={settings.closeToTray} onChange={toggleTray} />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-edge bg-panel p-5">
+        <div className="flex items-center justify-between">
+          <div className="pr-4">
+            <div className="text-sm font-medium text-slate-200">{t('replay.auto')}</div>
+            <div className="mt-0.5 text-xs text-mute">{t('replay.autoHint')}</div>
+          </div>
+          <Toggle on={settings.replayAuto} onChange={toggleAuto} />
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-edge bg-panel p-5">
+        <div className="flex items-center justify-between">
+          <div className="pr-4">
+            <div className="text-sm font-medium text-slate-200">{t('replay.folder')}</div>
+            <div className="mt-0.5 truncate text-xs text-mute">
+              {settings.replayFolder || t('replay.folderDefault')}
+            </div>
+          </div>
+          <button
+            onClick={pickReplayFolder}
+            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm font-medium text-slate-200 hover:border-teal hover:text-teal"
+          >
+            {t('replay.change')}
+          </button>
         </div>
       </div>
 

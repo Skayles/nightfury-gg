@@ -40,38 +40,41 @@ reads as a stats companion.
 
 ### Features
 
-- **Profile** — an op.gg-style match history with **filters** (queue, champion,
-  result, period), aggregate stats (winrate, KDA, CS/min, KP, vision) and
+- **Profile** — an op.gg-style match history with **filters**, aggregate stats and
   per-champion breakdowns, split into two sub-tabs:
-  - **Overview** — the summoner header (icon, level, rank), aggregates and the
-    clickable match history. Each row also shows the **summoner spells, items and
-    runes** used (with hover tooltips).
-  - **Charts** — recent form, a cumulative **winrate trend**, **win/loss** and
-    **by-queue** donut charts, and your most-played champions.
-  - Click any match to open it in three tabs: **My game** (full stats + a
-    **highlights timeline**: first blood, kills & deaths, dragons, Baron, towers…),
-    **Runes** (a full LoL-style rune page with stat shards and tooltips), and
-    **Scoreboard** (all 10 players with KDA, CS, damage, gold and items).
-  - **Session analysis** — groups your games into play sessions (detected from
-    your own cadence) and surfaces trends: fatigue over a session, form after a
-    break, best time of day, tilt after a loss, weekend vs weekday, and more.
-- **Live / Lobby** — a **loading-screen view** of the 10 players, sorted by role
-  (top → jungle → mid → adc → support), each shown with the champion's art (right
-  skin), Riot ID and **rank**. Includes an **Open on Porofessor** button, and the
-  cards are **clickable** to open a player's profile in the app.
-- **Friends list** — a side drawer showing your Riot friends, their status and
-  which game they're on, with the champion for those in a LoL game.
+  - **Overview** — the summoner header over the champion's **splash art**, with
+    **Solo/Duo and Flex** ranks, stat tiles, and a right rail (per-champion
+    performance, teammates you've **played with** most). History rows are tinted
+    by win/loss and show the spells, items and runes used.
+  - **Charts** — recent form, winrate trend, win/loss & by-queue charts, and your
+    most-played champions.
+  - Click any match for **My game** (stats + a highlights timeline), **Runes**
+    (full LoL-style rune page) and **Scoreboard** (all 10 players).
+  - **Session analysis** — groups your games into sessions and surfaces trends:
+    fatigue, form after a break, best time of day, tilt after a loss, and more.
+- **Live / Lobby** — a **loading-screen view** of the 10 players, sorted by role,
+  with champion art, Riot ID and **rank**. An **"already encountered"** badge
+  shows when you last crossed a player. Includes an **Open on Porofessor** button,
+  and cards open a player's profile. *(Advanced mode adds smurf & premade
+  detection, plus real win rates.)*
+- **Replays** — record your games to **MP4** to review them or send them to a
+  coach. The video **engine** (ffmpeg, ~50 MB) is optional and **downloaded on
+  demand**, so nothing bloats the app for people who don't record. Record manually
+  or **automatically** with each game, with GPU-accelerated encoding and optional
+  game/mic audio.
+- **Friends list** — a side drawer showing your Riot friends and the game they're
+  on.
 - **Google Sheet export** — send your history to a Google Sheet with **no Google
-  login**: you paste a small Apps Script URL bound to *your* sheet. Manual or
-  automatic (on game end), with an export filter, plus a zero-config **CSV** export.
-- **Update notifier** — checks GitHub Releases on launch and shows a banner when a
-  newer version is available.
-- **Discord Rich Presence** *(optional, off by default)* — shows "Nightfury.gg"
-  in your Discord status with your current champion and a game timer.
-- **Options** — switch language (🇫🇷 / 🇬🇧), toggle Discord presence, manage
-  storage, and add an optional Riot API key (see *Advanced mode* below).
-- **Bilingual** — full French / English interface, with times shown in your PC's
-  local time zone.
+  login** (you paste a small Apps Script URL bound to *your* sheet), plus a
+  zero-config **CSV** export.
+- **Minimize to tray** — closing the window keeps the app running in the tray, so
+  live tracking and auto-record keep going.
+- **Update notifier** — shows a banner when a newer version is on GitHub Releases.
+- **Discord Rich Presence** *(optional, off by default)* — shows your current
+  champion and a game timer in your Discord status.
+- **Options** — language (🇫🇷 / 🇬🇧), Discord presence, tray behavior, replay
+  settings, storage, and an optional Riot API key (see *Advanced mode*).
+- **Bilingual** — full French / English interface, with local-time timestamps.
 
 ### Keyless by design
 
@@ -118,6 +121,18 @@ key expires every 24h.
 - **Data Dragon disk cache** — champion/item/rune/spell data is cached on disk per
   patch, so after the first launch startup only fetches the tiny version file and
   loads everything locally. It also keeps working offline from the cached copy.
+
+### Replays (recording)
+
+Recordings are produced by **ffmpeg** (the "engine"), which captures the screen
+and encodes straight to **MP4** at your chosen quality. The engine is **not
+bundled** — download it once from the Replay tab (~50 MB) and remove it anytime.
+
+Encoding can run on your **GPU** (AMD / NVIDIA / Intel) to avoid in-game FPS
+drops, and can include game and/or microphone audio. Recording uses `gdigrab`, so
+run **League in borderless windowed** (a fullscreen/DirectX capture mode is also
+available). Capturing the game's output sound requires **Stereo Mix** or a virtual
+audio cable on Windows.
 
 ### ⚠️ Windows SmartScreen / antivirus warning
 
@@ -223,42 +238,44 @@ comprenne tout de suite qu'il s'agit d'un compagnon de stats.
 
 ### Fonctionnalités
 
-- **Profil** — un historique façon op.gg avec **filtres** (file, champion,
-  résultat, période), des stats agrégées (winrate, KDA, CS/min, KP, vision) et
-  le détail par champion, réparti en deux sous-onglets :
-  - **Vue d'ensemble** — l'en-tête d'invocateur (icône, niveau, rang), les
-    agrégats et l'historique cliquable. Chaque ligne montre aussi les **sorts
-    d'invocateur, objets et runes** utilisés (avec infobulles au survol).
-  - **Graphiques** — la forme récente, une **courbe de winrate**, des camemberts
-    **victoires/défaites** et **par file**, et vos champions les plus joués.
-  - Cliquez sur une partie pour l'ouvrir en trois onglets : **Ma partie** (stats
-    détaillées + une **frise des faits marquants** : first blood, kills et morts,
-    dragons, Baron, tours…), **Runes** (une page de runes façon LoL avec les
-    fragments de stats et des infobulles) et **Scoreboard** (les 10 joueurs avec
-    KDA, CS, dégâts, or et objets).
-  - **Analyse de session** — regroupe vos parties en sessions (détectées d'après
-    votre propre cadence) et fait ressortir des tendances : fatigue en fin de
-    session, forme après une pause, meilleure heure de jeu, tilt après une
-    défaite, week-end vs semaine, etc.
-- **Live / Lobby** — une **vue écran de chargement** des 10 joueurs, **triés par
-  rôle** (top → jungle → mid → adc → support), chacun avec l'art du champion (bon
-  skin), son Riot ID et son **rang**. Avec un bouton **Ouvrir sur Porofessor**, et
-  les cartes sont **cliquables** pour ouvrir le profil d'un joueur dans l'app.
-- **Liste d'amis** — un tiroir latéral montrant vos amis Riot, leur statut et le
-  jeu sur lequel ils sont, avec le champion pour ceux en partie sur LoL.
+- **Profil** — un historique façon op.gg avec **filtres**, des stats agrégées et le
+  détail par champion, en deux sous-onglets :
+  - **Vue d'ensemble** — l'en-tête d'invocateur sur le **splash art** du champion,
+    les rangs **Solo/Duo et Flex**, des tuiles de stats, et une colonne de droite
+    (performance par champion, coéquipiers avec qui vous avez le plus **joué**).
+    Les lignes d'historique sont teintées victoire/défaite et montrent les sorts,
+    objets et runes utilisés.
+  - **Graphiques** — la forme récente, la courbe de winrate, les camemberts
+    victoires/défaites & par file, et vos champions les plus joués.
+  - Cliquez sur une partie pour **Ma partie** (stats + frise des faits marquants),
+    **Runes** (page de runes façon LoL) et **Scoreboard** (les 10 joueurs).
+  - **Analyse de session** — regroupe vos parties en sessions et fait ressortir
+    des tendances : fatigue, forme après une pause, meilleure heure de jeu, tilt
+    après une défaite, etc.
+- **Live / Lobby** — une **vue écran de chargement** des 10 joueurs, triés par
+  rôle, avec l'art du champion, le Riot ID et le **rang**. Un badge **« déjà
+  croisé »** indique la dernière fois que vous avez rencontré un joueur. Avec un
+  bouton **Ouvrir sur Porofessor**, et les cartes ouvrent le profil d'un joueur.
+  *(Le mode avancé ajoute la détection de smurf/premade et les vrais winrates.)*
+- **Replays** — enregistrez vos parties en **MP4** pour les revoir ou les envoyer
+  à un coach. Le **moteur** vidéo (ffmpeg, ~50 Mo) est optionnel et **téléchargé à
+  la demande**, donc rien n'alourdit l'app pour ceux qui n'enregistrent pas.
+  Enregistrement manuel ou **automatique** à chaque partie, avec encodage sur le
+  GPU et son du jeu/micro en option.
+- **Liste d'amis** — un tiroir latéral montrant vos amis Riot et le jeu sur lequel
+  ils sont.
 - **Export Google Sheet** — envoie votre historique vers un Google Sheet **sans
-  connexion Google** : vous collez une petite URL Apps Script rattachée à *votre*
-  sheet. Manuel ou automatique (fin de partie), avec un filtre d'export, plus un
-  export **CSV** sans configuration.
-- **Notification de mise à jour** — vérifie les releases GitHub au lancement et
-  affiche une bannière quand une nouvelle version est disponible.
-- **Présence Discord** *(optionnelle, désactivée par défaut)* — affiche
-  « Nightfury.gg » dans votre statut Discord, avec votre champion et le chrono.
-- **Options** — changez de langue (🇫🇷 / 🇬🇧), activez/désactivez la présence
-  Discord, gérez le stockage, et ajoutez une clé API Riot optionnelle (voir
-  *Mode avancé* ci-dessous).
-- **Bilingue** — interface complète français / anglais, avec les heures affichées
-  dans le fuseau horaire local de votre PC.
+  connexion Google** (vous collez une petite URL Apps Script rattachée à *votre*
+  sheet), plus un export **CSV** sans configuration.
+- **Réduction dans la zone de notification** — fermer la fenêtre garde l'app active
+  dans le tray, pour que le suivi live et l'enregistrement automatique continuent.
+- **Notification de mise à jour** — affiche une bannière quand une nouvelle version
+  est sur GitHub.
+- **Présence Discord** *(optionnelle, désactivée par défaut)* — affiche votre
+  champion et le chrono dans votre statut Discord.
+- **Options** — langue (🇫🇷 / 🇬🇧), présence Discord, comportement du tray,
+  réglages des replays, stockage, et clé API Riot optionnelle (voir *Mode avancé*).
+- **Bilingue** — interface complète français / anglais, heures en fuseau local.
 
 ### Keyless par conception
 
@@ -311,6 +328,19 @@ incluse dans l'app ni poussée sur le dépôt. Ce sont des heuristiques best-eff
   mises en cache sur le disque par patch : après le premier lancement, le
   démarrage ne récupère plus que le petit fichier de version et charge tout en
   local. L'app reste aussi utilisable **hors-ligne** grâce à cette copie.
+
+### Replays (enregistrement)
+
+Les enregistrements sont produits par **ffmpeg** (le « moteur »), qui capture
+l'écran et encode directement en **MP4** à la qualité choisie. Le moteur **n'est
+pas embarqué** — téléchargez-le une fois depuis l'onglet Replay (~50 Mo) et
+supprimez-le à tout moment.
+
+L'encodage peut se faire sur votre **carte graphique** (AMD / NVIDIA / Intel) pour
+éviter les pertes de FPS, et inclure le son du jeu et/ou du micro. La capture
+utilise `gdigrab` : lancez **League en fenêtré sans bordure** (un mode plein
+écran/DirectX est aussi disponible). Capturer le son de sortie du jeu nécessite
+**Stereo Mix** ou un câble audio virtuel sous Windows.
 
 
 ### ⚠️ Avertissement SmartScreen / antivirus (Windows)

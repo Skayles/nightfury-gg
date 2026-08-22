@@ -34,6 +34,25 @@ export interface Settings {
   // Optional personal Riot API key (dev 24h or production) to unlock winrate
   // and other-player lookups. Empty = fully keyless mode.
   riotApiKey: string
+  // Close button hides the app to the system tray instead of quitting.
+  closeToTray: boolean
+  // Where recorded replays are stored ('' = default: Videos/Nightfury.gg).
+  replayFolder: string
+  // Recording quality.
+  replayResolution: 720 | 1080 | 1440
+  replayFps: 30 | 60
+  // Video encoder: cpu (x264, universal) or GPU (amd/nvidia/intel).
+  replayEncoder: 'cpu' | 'amd' | 'nvidia' | 'intel'
+  // Capture method: 'windowed' (gdigrab) or 'fullscreen' (ddagrab, DirectX/fullscreen).
+  replayCapture: 'windowed' | 'fullscreen'
+  // Record game audio, and the dshow audio device to use ('' = auto-detect).
+  replayAudio: boolean
+  replayAudioDevice: string
+  // Record the microphone too, and which input device.
+  replayMic: boolean
+  replayMicDevice: string
+  // Auto-record games detected by the client (manual otherwise).
+  replayAuto: boolean
 }
 
 const defaults: Settings = {
@@ -45,7 +64,18 @@ const defaults: Settings = {
   scoutingEnabled: true,
   language: 'fr',
   discordEnabled: false,
-  riotApiKey: ''
+  riotApiKey: '',
+  closeToTray: true,
+  replayFolder: '',
+  replayResolution: 1080,
+  replayFps: 60,
+  replayAuto: false,
+  replayEncoder: 'cpu',
+  replayCapture: 'windowed',
+  replayAudio: false,
+  replayAudioDevice: '',
+  replayMic: false,
+  replayMicDevice: ''
 }
 
 let cache: Settings | null = null

@@ -120,7 +120,7 @@ export default function FriendsDrawer({ onClose }: { onClose: () => void }): JSX
       <div
         onClick={(e) => e.stopPropagation()}
         className={
-          'relative flex h-full w-[360px] flex-col border-l border-edge bg-panel shadow-2xl transition-transform duration-200 ' +
+          'relative flex h-full w-[360px] flex-col border-l border-edge bg-panel pt-[38px] shadow-2xl transition-transform duration-200 ' +
           (mounted ? 'translate-x-0' : 'translate-x-full')
         }
       >

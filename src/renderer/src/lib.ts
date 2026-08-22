@@ -47,7 +47,9 @@ export function aggregate(matches: MatchRecord[]): Agg | null {
 
 export interface ChampStat {
   champion: string
+  championId: number
   games: number
+  wins: number
   winrate: number
   kda: number
 }
@@ -67,7 +69,9 @@ export function perChampion(matches: MatchRecord[]): ChampStat[] {
       const a = ms.reduce((s, m) => s + m.assists, 0)
       return {
         champion,
+        championId: ms[0].championId,
         games: ms.length,
+        wins,
         winrate: Math.round((wins / ms.length) * 1000) / 10,
         kda: Math.round(((k + a) / (d || 1)) * 100) / 100
       }
@@ -145,6 +149,12 @@ export function treeColor(styleId: number | undefined): string {
   return TREE_COLOR[styleId ?? 0] ?? '#7C93A8'
 }
 
+/** Ranked tier emblem (Community Dragon). Falls back to text via onError. */
+export function rankEmblem(tier: string | null | undefined): string | null {
+  if (!tier) return null
+  return `https://raw.communitydragon.org/latest/plugins/rcp-fe-lol-static-assets/global/default/images/ranked-emblem/emblem-${tier.toLowerCase()}.png`
+}
+
 export function profileIcon(version: string, iconId: number): string | null {
   if (!version) return null
   return `${DD}/${version}/img/profileicon/${iconId}.png`
@@ -153,6 +163,23 @@ export function profileIcon(version: string, iconId: number): string | null {
 /** Localized "N games" / "N parties" (handles singular). */
 export function gamesLabel(n: number, t: (k: string, v?: Record<string, string | number>) => string): string {
   return t(n === 1 ? 'common.game' : 'common.games', { n })
+}
+
+/** Compact localized relative time, e.g. "il y a 3 j" / "3d ago". */
+export function agoShort(
+  ms: number,
+  t: (k: string, v?: Record<string, string | number>) => string
+): string {
+  const diff = Math.max(0, Date.now() - ms)
+  const h = diff / 3600000
+  const d = diff / 86400000
+  const w = d / 7
+  const mo = d / 30
+  if (mo >= 1) return t('time.moAgo', { n: Math.round(mo) })
+  if (w >= 1) return t('time.wAgo', { n: Math.round(w) })
+  if (d >= 1) return t('time.dAgo', { n: Math.round(d) })
+  if (h >= 1) return t('time.hAgo', { n: Math.round(h) })
+  return t('time.recent')
 }
 
 /** Champion loading-screen art (the vertical card), for a given skin. Not versioned. */

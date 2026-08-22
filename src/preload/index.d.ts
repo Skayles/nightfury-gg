@@ -31,6 +31,7 @@ export interface ScorePlayer {
   pid: number
   teamId: number
   name: string
+  tagLine: string
   championId: number
   kills: number
   deaths: number
@@ -84,6 +85,13 @@ export interface SummonerProfile {
   rankedTier: string | null
   rankedDivision: string | null
   rankedLp: number | null
+  rankedWins: number | null
+  rankedLosses: number | null
+  flexTier: string | null
+  flexDivision: string | null
+  flexLp: number | null
+  flexWins: number | null
+  flexLosses: number | null
   region: string
 }
 
@@ -168,6 +176,30 @@ export interface AppSettings {
   language: 'fr' | 'en'
   discordEnabled: boolean
   riotApiKey: string
+  closeToTray: boolean
+  replayFolder: string
+  replayResolution: 720 | 1080 | 1440
+  replayFps: 30 | 60
+  replayEncoder: 'cpu' | 'amd' | 'nvidia' | 'intel'
+  replayCapture: 'windowed' | 'fullscreen'
+  replayAudio: boolean
+  replayAudioDevice: string
+  replayMic: boolean
+  replayMicDevice: string
+  replayAuto: boolean
+}
+
+export interface ReplayFile {
+  name: string
+  path: string
+  size: number
+  mtime: number
+}
+
+export interface ReplayStatus {
+  installed: boolean
+  folder: string
+  replays: ReplayFile[]
 }
 
 export type LcuStatus =
@@ -196,6 +228,23 @@ export interface Friend {
 
 export interface Api {
   getFriends(): Promise<Friend[]>
+  getReplayStatus(): Promise<ReplayStatus>
+  downloadEngine(): Promise<{ ok: boolean; error?: string }>
+  removeEngine(): Promise<boolean>
+  startRecording(): Promise<{ ok: boolean; error?: string; file?: string }>
+  stopRecording(): Promise<{ ok: boolean; file?: string }>
+  getRecordingInfo(): Promise<{ recording: boolean; file: string; since: number }>
+  getAudioDevices(): Promise<string[]>
+  onRecordingState(
+    cb: (info: { recording: boolean; file: string; since: number }) => void
+  ): () => void
+  onReplaysUpdated(cb: (list: ReplayFile[]) => void): () => void
+  listReplays(): Promise<ReplayFile[]>
+  pickReplayFolder(): Promise<string | null>
+  openReplay(path: string): Promise<void>
+  revealReplay(path: string): Promise<void>
+  deleteReplay(path: string): Promise<boolean>
+  onEngineProgress(cb: (p: { done: number; total: number }) => void): () => void
   checkUpdate(): Promise<{ updateAvailable: boolean; latest: string; url: string }>
   openExternal(url: string): Promise<void>
   validateRiotKey(key: string): Promise<{ ok: boolean; message: string }>

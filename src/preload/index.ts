@@ -11,6 +11,35 @@ const api = {
 
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:set', patch),
+
+  getReplayStatus: () => ipcRenderer.invoke('replay:status'),
+  downloadEngine: () => ipcRenderer.invoke('replay:download-engine'),
+  removeEngine: () => ipcRenderer.invoke('replay:remove-engine'),
+  startRecording: () => ipcRenderer.invoke('replay:start-recording'),
+  stopRecording: () => ipcRenderer.invoke('replay:stop-recording'),
+  getRecordingInfo: () => ipcRenderer.invoke('replay:recording-info'),
+  getAudioDevices: () => ipcRenderer.invoke('replay:audio-devices'),
+  onRecordingState: (cb: (info: { recording: boolean; file: string; since: number }) => void) => {
+    const h = (_e: unknown, info: { recording: boolean; file: string; since: number }): void =>
+      cb(info)
+    ipcRenderer.on('replay:recording-state', h)
+    return () => ipcRenderer.removeListener('replay:recording-state', h)
+  },
+  onReplaysUpdated: (cb: (list: unknown) => void) => {
+    const h = (_e: unknown, list: unknown): void => cb(list)
+    ipcRenderer.on('replay:updated', h)
+    return () => ipcRenderer.removeListener('replay:updated', h)
+  },
+  listReplays: () => ipcRenderer.invoke('replay:list'),
+  pickReplayFolder: () => ipcRenderer.invoke('replay:pick-folder'),
+  openReplay: (path: string) => ipcRenderer.invoke('replay:open', path),
+  revealReplay: (path: string) => ipcRenderer.invoke('replay:reveal', path),
+  deleteReplay: (path: string) => ipcRenderer.invoke('replay:delete', path),
+  onEngineProgress: (cb: (p: { done: number; total: number }) => void) => {
+    const h = (_e: unknown, p: { done: number; total: number }): void => cb(p)
+    ipcRenderer.on('replay:download-progress', h)
+    return () => ipcRenderer.removeListener('replay:download-progress', h)
+  },
   getDdragonInfo: () => ipcRenderer.invoke('ddragon:info'),
   onDdragonUpdated: (cb: (info: unknown) => void) => {
     const h = (_e: unknown, info: unknown): void => cb(info)
