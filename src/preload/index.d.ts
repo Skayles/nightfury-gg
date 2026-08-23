@@ -228,6 +228,7 @@ export interface Friend {
 
 export interface Api {
   getFriends(): Promise<Friend[]>
+  onSettingsUpdated(cb: (s: AppSettings) => void): () => void
   getReplayStatus(): Promise<ReplayStatus>
   downloadEngine(): Promise<{ ok: boolean; error?: string }>
   removeEngine(): Promise<boolean>

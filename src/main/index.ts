@@ -359,7 +359,11 @@ function registerIpc(): void {
   })
   ipcMain.handle('replay:recording-info', () => recordingInfo())
   ipcMain.handle('replay:list', () => listReplays())
-  ipcMain.handle('replay:pick-folder', () => pickReplayFolder())
+  ipcMain.handle('replay:pick-folder', async () => {
+    const f = await pickReplayFolder()
+    if (f) send('settings:updated', getSettings())
+    return f
+  })
   ipcMain.handle('replay:open', (_e, path: string) => openReplay(path))
   ipcMain.handle('replay:reveal', (_e, path: string) => revealReplay(path))
   ipcMain.handle('replay:delete', (_e, path: string) => deleteReplay(path))
@@ -400,6 +404,7 @@ function registerIpc(): void {
         stopDiscord()
       }
     }
+    send('settings:updated', next)
     return next
   })
   ipcMain.handle('ddragon:info', () => ddragonInfo())

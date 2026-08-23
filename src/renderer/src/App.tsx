@@ -62,12 +62,14 @@ export default function App(): JSX.Element {
     const off3 = window.api.onExportStatus((s) => setExp(s as ExportStatus))
     const off4 = window.api.onSummonerUpdated((p) => setMeSummoner(p as SummonerProfile))
     const off5 = window.api.onDdragonUpdated((i) => setDdragon(i as DdragonInfo))
+    const off6 = window.api.onSettingsUpdated(() => reloadSettings())
     return () => {
       off1()
       off2()
       off3()
       off4()
       off5()
+      off6()
     }
   }, [])
 

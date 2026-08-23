@@ -11,6 +11,11 @@ const api = {
 
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch: Record<string, unknown>) => ipcRenderer.invoke('settings:set', patch),
+  onSettingsUpdated: (cb: (s: unknown) => void) => {
+    const h = (_e: unknown, s: unknown): void => cb(s)
+    ipcRenderer.on('settings:updated', h)
+    return () => ipcRenderer.removeListener('settings:updated', h)
+  },
 
   getReplayStatus: () => ipcRenderer.invoke('replay:status'),
   downloadEngine: () => ipcRenderer.invoke('replay:download-engine'),

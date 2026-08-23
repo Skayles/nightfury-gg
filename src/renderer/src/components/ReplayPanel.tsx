@@ -69,6 +69,31 @@ export default function ReplayPanel(): JSX.Element {
     setAudioOutputs([...new Set(enumOutputs)])
   }
 
+  // Populate lists on load without prompting for mic permission, so a saved
+  // device shows up in its dropdown after reopening the app.
+  async function loadAudioDevicesSilent(): Promise<void> {
+    let enumInputs: string[] = []
+    let enumOutputs: string[] = []
+    try {
+      const ffInputs = await window.api.getAudioDevices()
+      enumInputs = ffInputs
+    } catch {
+      /* ignore */
+    }
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices()
+      enumInputs = [
+        ...enumInputs,
+        ...devs.filter((d) => d.kind === 'audioinput' && d.label).map((d) => d.label)
+      ]
+      enumOutputs = devs.filter((d) => d.kind === 'audiooutput' && d.label).map((d) => d.label)
+    } catch {
+      /* ignore */
+    }
+    setAudioInputs([...new Set(enumInputs)])
+    setAudioOutputs([...new Set(enumOutputs)])
+  }
+
   async function setQuality(patch: {
     replayResolution?: 720 | 1080 | 1440
     replayFps?: 30 | 60
@@ -92,14 +117,17 @@ export default function ReplayPanel(): JSX.Element {
 
   useEffect(() => {
     reload()
+    loadAudioDevicesSilent()
     window.api.getRecordingInfo().then((i) => setRecording(i.recording))
     const offProg = window.api.onEngineProgress((p) => setProgress(p))
     const offRec = window.api.onRecordingState((i) => setRecording(i.recording))
     const offList = window.api.onReplaysUpdated((l) => setReplays(l))
+    const offSettings = window.api.onSettingsUpdated(() => reload())
     return () => {
       offProg()
       offRec()
       offList()
+      offSettings()
     }
   }, [])
 
@@ -134,6 +162,15 @@ export default function ReplayPanel(): JSX.Element {
 
   const pct =
     progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null
+
+  // Always include the saved device as an option, even before "Detect" is run,
+  // so the dropdown shows the remembered selection instead of "auto-detect".
+  const gameOptions =
+    audioDevice && !audioOutputs.includes(audioDevice)
+      ? [audioDevice, ...audioOutputs]
+      : audioOutputs
+  const micOptions =
+    micDevice && !audioInputs.includes(micDevice) ? [micDevice, ...audioInputs] : audioInputs
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -339,7 +376,7 @@ export default function ReplayPanel(): JSX.Element {
                   className="min-w-0 flex-1 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-slate-200"
                 >
                   <option value="">{t('replay.audioAuto')}</option>
-                  {audioOutputs.map((d) => (
+                  {gameOptions.map((d) => (
                     <option key={'o-' + d} value={d}>
                       {d}
                     </option>
@@ -379,7 +416,7 @@ export default function ReplayPanel(): JSX.Element {
                   className="min-w-0 flex-1 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-slate-200"
                 >
                   <option value="">{t('replay.audioAuto')}</option>
-                  {audioInputs.map((d) => (
+                  {micOptions.map((d) => (
                     <option key={'m-' + d} value={d}>
                       {d}
                     </option>
