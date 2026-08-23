@@ -130,6 +130,17 @@ function send(channel: string, payload?: unknown): void {
   mainWindow?.webContents.send(channel, payload)
 }
 
+function destroyTray(): void {
+  if (tray) {
+    try {
+      tray.destroy()
+    } catch {
+      /* already gone */
+    }
+    tray = null
+  }
+}
+
 function showWindow(): void {
   if (!mainWindow) {
     createWindow()
@@ -138,6 +149,8 @@ function showWindow(): void {
   if (mainWindow.isMinimized()) mainWindow.restore()
   mainWindow.show()
   mainWindow.focus()
+  // The window is visible again — the tray icon should only exist while hidden.
+  destroyTray()
 }
 
 function refreshTrayMenu(): void {
@@ -206,12 +219,19 @@ function createWindow(): void {
   })
 
   mainWindow.on('ready-to-show', () => mainWindow?.show())
+  // Fallback: some packaged builds don't reliably emit 'ready-to-show', which
+  // would leave the window hidden — show it once the content has loaded too.
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (!mainWindow?.isVisible()) mainWindow?.show()
+  })
 
   // Close button hides to the system tray when enabled, instead of quitting.
+  // The tray icon is created here (only while hidden), not at startup.
   mainWindow.on('close', (e) => {
     if (getSettings().closeToTray && !isQuitting) {
       e.preventDefault()
       mainWindow?.hide()
+      createTray()
     }
   })
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -520,6 +540,14 @@ function registerIpc(): void {
   })
 }
 
+// Single instance: if the app is already running (e.g. hidden in the tray),
+// relaunching the .exe just reveals the existing window instead of doing nothing.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => showWindow())
+}
+
 app.whenReady().then(async () => {
   // Stable data folder, decoupled from the display name: renaming/rebranding
   // the app must never move the user's stored history (%APPDATA%/nightfury).
@@ -530,24 +558,14 @@ app.whenReady().then(async () => {
   initDb()
   registerIpc()
   createWindow()
-  createTray()
 
   app.on('before-quit', () => {
     isQuitting = true
   })
   // Remove the tray icon cleanly so Windows doesn't leave a "ghost" icon that
   // only disappears when the mouse hovers over the notification area.
-  const destroyTray = (): void => {
-    if (tray) {
-      try {
-        tray.destroy()
-      } catch {
-        /* already gone */
-      }
-      tray = null
-    }
-  }
-  app.on('will-quit', destroyTray)
+  const destroyTrayOnQuit = (): void => destroyTray()
+  app.on('will-quit', destroyTrayOnQuit)
   // Ctrl+C in the dev terminal kills the process with a signal, which bypasses
   // 'will-quit' — handle it explicitly so the tray icon is removed there too.
   process.on('SIGINT', () => {
