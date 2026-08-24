@@ -24,7 +24,6 @@ export default function ReplayPanel(): JSX.Element {
   const [audio, setAudio] = useState(false)
   const [audioDevice, setAudioDevice] = useState('')
   const [audioInputs, setAudioInputs] = useState<string[]>([])
-  const [audioOutputs, setAudioOutputs] = useState<string[]>([])
   const [mic, setMic] = useState(false)
   const [micDevice, setMicDevice] = useState('')
   const [recording, setRecording] = useState(false)
@@ -51,32 +50,27 @@ export default function ReplayPanel(): JSX.Element {
     const ffInputs = await window.api.getAudioDevices()
     // Chromium also sees playback (output) devices and adds proper labels.
     let enumInputs: string[] = []
-    let enumOutputs: string[] = []
     try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true })
-      s.getTracks().forEach((t) => t.stop())
+      const st = await navigator.mediaDevices.getUserMedia({ audio: true })
+      st.getTracks().forEach((t) => t.stop())
     } catch {
       /* permission denied → labels may be blank, still try */
     }
     try {
       const devs = await navigator.mediaDevices.enumerateDevices()
       enumInputs = devs.filter((d) => d.kind === 'audioinput' && d.label).map((d) => d.label)
-      enumOutputs = devs.filter((d) => d.kind === 'audiooutput' && d.label).map((d) => d.label)
     } catch {
       /* enumerate failed */
     }
     setAudioInputs([...new Set([...ffInputs, ...enumInputs])])
-    setAudioOutputs([...new Set(enumOutputs)])
   }
 
   // Populate lists on load without prompting for mic permission, so a saved
   // device shows up in its dropdown after reopening the app.
   async function loadAudioDevicesSilent(): Promise<void> {
     let enumInputs: string[] = []
-    let enumOutputs: string[] = []
     try {
-      const ffInputs = await window.api.getAudioDevices()
-      enumInputs = ffInputs
+      enumInputs = await window.api.getAudioDevices()
     } catch {
       /* ignore */
     }
@@ -86,12 +80,10 @@ export default function ReplayPanel(): JSX.Element {
         ...enumInputs,
         ...devs.filter((d) => d.kind === 'audioinput' && d.label).map((d) => d.label)
       ]
-      enumOutputs = devs.filter((d) => d.kind === 'audiooutput' && d.label).map((d) => d.label)
     } catch {
       /* ignore */
     }
     setAudioInputs([...new Set(enumInputs)])
-    setAudioOutputs([...new Set(enumOutputs)])
   }
 
   async function setQuality(patch: {
@@ -163,14 +155,29 @@ export default function ReplayPanel(): JSX.Element {
   const pct =
     progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null
 
+  // ffmpeg (dshow) can only capture RECORDING devices, so "game audio" must use
+  // a loopback capture device (Stereo Mix, virtual cable) — not a playback one.
+  const LOOPBACK_KEYS = [
+    'stereo mix',
+    'loopback',
+    'what u hear',
+    'wave out',
+    'cable output',
+    'voicemeeter out',
+    'mix'
+  ]
+  const isLoopback = (d: string): boolean => LOOPBACK_KEYS.some((k) => d.toLowerCase().includes(k))
+  const loopbackInputs = audioInputs.filter(isLoopback)
+  const micInputs = audioInputs.filter((d) => !isLoopback(d))
+
   // Always include the saved device as an option, even before "Detect" is run,
   // so the dropdown shows the remembered selection instead of "auto-detect".
   const gameOptions =
-    audioDevice && !audioOutputs.includes(audioDevice)
-      ? [audioDevice, ...audioOutputs]
-      : audioOutputs
+    audioDevice && !loopbackInputs.includes(audioDevice)
+      ? [audioDevice, ...loopbackInputs]
+      : loopbackInputs
   const micOptions =
-    micDevice && !audioInputs.includes(micDevice) ? [micDevice, ...audioInputs] : audioInputs
+    micDevice && !micInputs.includes(micDevice) ? [micDevice, ...micInputs] : micInputs
 
   return (
     <div className="mx-auto max-w-4xl">
