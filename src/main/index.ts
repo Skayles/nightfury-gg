@@ -46,7 +46,8 @@ import {
   finishRecording,
   isRecording,
   recordingInfo,
-  listAudioDevices
+  listAudioDevices,
+  listWindows
 } from './replay'
 import {
   validateKey,
@@ -359,6 +360,7 @@ function registerIpc(): void {
     return r
   })
   ipcMain.handle('replay:audio-devices', () => listAudioDevices())
+  ipcMain.handle('replay:windows', () => listWindows())
   ipcMain.handle('replay:recording-info', () => recordingInfo())
   ipcMain.handle('replay:list', () => listReplays())
   ipcMain.handle('replay:pick-folder', async () => {

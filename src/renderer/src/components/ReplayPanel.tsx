@@ -21,7 +21,9 @@ export default function ReplayPanel(): JSX.Element {
   const [resolution, setResolution] = useState<720 | 1080 | 1440>(1080)
   const [fps, setFps] = useState<30 | 60>(60)
   const [encoder, setEncoder] = useState<'cpu' | 'amd' | 'nvidia' | 'intel'>('cpu')
-  const [capture, setCapture] = useState<'windowed' | 'fullscreen'>('windowed')
+  const [capture, setCapture] = useState<'windowed' | 'fullscreen' | 'window'>('windowed')
+  const [windowTitle, setWindowTitle] = useState('')
+  const [windows, setWindows] = useState<string[]>([])
   const [audio, setAudio] = useState(false)
   const [audioDevice, setAudioDevice] = useState('')
   const [audioInputs, setAudioInputs] = useState<string[]>([])
@@ -43,6 +45,7 @@ export default function ReplayPanel(): JSX.Element {
     setFps(settings.replayFps)
     setEncoder(settings.replayEncoder)
     setCapture(settings.replayCapture)
+    setWindowTitle(settings.replayWindowTitle)
     setAudio(settings.replayAudio)
     setAudioDevice(settings.replayAudioDevice)
     setMic(settings.replayMic)
@@ -93,11 +96,17 @@ export default function ReplayPanel(): JSX.Element {
     setAudioInputs([...new Set(enumInputs)])
   }
 
+  async function loadWindows(): Promise<void> {
+    const w = await window.api.getWindows()
+    setWindows(w)
+  }
+
   async function setQuality(patch: {
     replayResolution?: 720 | 1080 | 1440
     replayFps?: 30 | 60
     replayEncoder?: 'cpu' | 'amd' | 'nvidia' | 'intel'
-    replayCapture?: 'windowed' | 'fullscreen'
+    replayCapture?: 'windowed' | 'fullscreen' | 'window'
+    replayWindowTitle?: string
     replayAudio?: boolean
     replayAudioDevice?: string
     replayMic?: boolean
@@ -110,6 +119,8 @@ export default function ReplayPanel(): JSX.Element {
     if (patch.replayFps) setFps(patch.replayFps)
     if (patch.replayEncoder) setEncoder(patch.replayEncoder)
     if (patch.replayCapture) setCapture(patch.replayCapture)
+    if (patch.replayCapture === 'window') void loadWindows()
+    if (patch.replayWindowTitle !== undefined) setWindowTitle(patch.replayWindowTitle)
     if (patch.replayAudio !== undefined) setAudio(patch.replayAudio)
     if (patch.replayAudioDevice !== undefined) setAudioDevice(patch.replayAudioDevice)
     if (patch.replayMic !== undefined) setMic(patch.replayMic)
@@ -480,7 +491,7 @@ export default function ReplayPanel(): JSX.Element {
         <div className="mt-4">
           <div className="section-label mb-1.5">{t('replay.capture')}</div>
           <div className="segmented">
-            {(['windowed', 'fullscreen'] as const).map((c) => (
+            {(['windowed', 'fullscreen', 'window'] as const).map((c) => (
               <button
                 key={c}
                 onClick={() => setQuality({ replayCapture: c })}
@@ -493,6 +504,31 @@ export default function ReplayPanel(): JSX.Element {
               </button>
             ))}
           </div>
+          {capture === 'window' && (
+            <div className="mt-2 flex gap-2">
+              <select
+                value={windowTitle}
+                onChange={(e) => setQuality({ replayWindowTitle: e.target.value })}
+                className="min-w-0 flex-1 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-slate-200"
+              >
+                <option value="">{t('replay.pickWindow')}</option>
+                {windowTitle && !windows.includes(windowTitle) && (
+                  <option value={windowTitle}>{windowTitle}</option>
+                )}
+                {windows.map((w) => (
+                  <option key={w} value={w}>
+                    {w}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={loadWindows}
+                className="shrink-0 rounded-md border border-edge px-2.5 py-1.5 text-xs text-slate-200 hover:border-teal hover:text-teal"
+              >
+                {t('replay.detect')}
+              </button>
+            </div>
+          )}
           <div className="mt-1 text-[11px] text-mute">{t('replay.captureHint')}</div>
         </div>
 

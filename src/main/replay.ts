@@ -7,7 +7,7 @@
  * folder (default: Videos/Nightfury.gg).
  */
 
-import { app, net, shell, dialog } from 'electron'
+import { app, net, shell, dialog, desktopCapturer } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import { join } from 'path'
 import {
@@ -181,12 +181,15 @@ export function recordingInfo(): { recording: boolean; file: string; since: numb
   return { recording: rec !== null, file: recFile, since: recStarted }
 }
 
-function videoInput(fps: number, mode: string): string[] {
+function videoInput(fps: number, mode: string, windowTitle?: string): string[] {
   if (process.platform === 'win32') {
     // ddagrab (Desktop Duplication) captures fullscreen/DirectX games; gdigrab
-    // only works for borderless windowed but is more broadly compatible.
+    // captures the desktop or a specific window (but not DirectX game windows).
     if (mode === 'fullscreen') {
       return ['-f', 'lavfi', '-i', `ddagrab=framerate=${fps}`]
+    }
+    if (mode === 'window' && windowTitle) {
+      return ['-f', 'gdigrab', '-framerate', String(fps), '-i', `title=${windowTitle}`]
     }
     return ['-f', 'gdigrab', '-framerate', String(fps), '-i', 'desktop']
   }
@@ -194,6 +197,16 @@ function videoInput(fps: number, mode: string): string[] {
     return ['-f', 'avfoundation', '-framerate', String(fps), '-i', '1:none']
   }
   return ['-f', 'x11grab', '-framerate', String(fps), '-i', ':0.0']
+}
+
+/** List open window titles so the user can capture a specific one. */
+export async function listWindows(): Promise<string[]> {
+  try {
+    const sources = await desktopCapturer.getSources({ types: ['window'] })
+    return sources.map((s) => s.name).filter((n) => !!n)
+  } catch {
+    return []
+  }
 }
 
 /** Enumerate DirectShow audio inputs (Windows) so the user can pick a device. */
@@ -340,7 +353,7 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
       : `scale=-2:${height}`
   const args = [
     '-y',
-    ...videoInput(fps, s.replayCapture),
+    ...videoInput(fps, s.replayCapture, s.replayWindowTitle),
     '-vf',
     vf,
     ...encoderArgs(s.replayEncoder),

@@ -30,6 +30,7 @@ const api = {
     return () => ipcRenderer.removeListener('replay:auto', h)
   },
   getAudioDevices: () => ipcRenderer.invoke('replay:audio-devices'),
+  getWindows: () => ipcRenderer.invoke('replay:windows'),
   onRecordingState: (cb: (info: { recording: boolean; file: string; since: number }) => void) => {
     const h = (_e: unknown, info: { recording: boolean; file: string; since: number }): void =>
       cb(info)

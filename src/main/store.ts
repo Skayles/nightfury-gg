@@ -44,7 +44,9 @@ export interface Settings {
   // Video encoder: cpu (x264, universal) or GPU (amd/nvidia/intel).
   replayEncoder: 'cpu' | 'amd' | 'nvidia' | 'intel'
   // Capture method: 'windowed' (gdigrab) or 'fullscreen' (ddagrab, DirectX/fullscreen).
-  replayCapture: 'windowed' | 'fullscreen'
+  replayCapture: 'windowed' | 'fullscreen' | 'window'
+  // Title of the window to capture when replayCapture is 'window'.
+  replayWindowTitle: string
   // Record game audio, and the dshow audio device to use ('' = auto-detect).
   replayAudio: boolean
   replayAudioDevice: string
@@ -77,6 +79,7 @@ const defaults: Settings = {
   replayAuto: false,
   replayEncoder: 'cpu',
   replayCapture: 'windowed',
+  replayWindowTitle: '',
   replayAudio: false,
   replayAudioDevice: '',
   replayMic: false,
