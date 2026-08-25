@@ -51,6 +51,11 @@ export interface Settings {
   // Record the microphone too, and which input device.
   replayMic: boolean
   replayMicDevice: string
+  // Capture volumes as a percentage (100 = original level).
+  replayAudioVolume: number
+  replayMicVolume: number
+  // Audio sync offset in ms (+ = audio later) to align renderer audio with video.
+  replayAudioOffsetMs: number
   // Auto-record games detected by the client (manual otherwise).
   replayAuto: boolean
 }
@@ -75,7 +80,10 @@ const defaults: Settings = {
   replayAudio: false,
   replayAudioDevice: '',
   replayMic: false,
-  replayMicDevice: ''
+  replayMicDevice: '',
+  replayAudioVolume: 100,
+  replayMicVolume: 100,
+  replayAudioOffsetMs: 0
 }
 
 let cache: Settings | null = null

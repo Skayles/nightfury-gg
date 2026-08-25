@@ -186,6 +186,9 @@ export interface AppSettings {
   replayAudioDevice: string
   replayMic: boolean
   replayMicDevice: string
+  replayAudioVolume: number
+  replayMicVolume: number
+  replayAudioOffsetMs: number
   replayAuto: boolean
 }
 
@@ -232,9 +235,11 @@ export interface Api {
   getReplayStatus(): Promise<ReplayStatus>
   downloadEngine(): Promise<{ ok: boolean; error?: string }>
   removeEngine(): Promise<boolean>
-  startRecording(): Promise<{ ok: boolean; error?: string; file?: string }>
-  stopRecording(): Promise<{ ok: boolean; file?: string }>
+  startVideo(): Promise<{ ok: boolean; error?: string; file?: string }>
+  saveAudio(buf: Uint8Array): Promise<{ ok: boolean }>
+  finishRecording(offsetMs: number): Promise<{ ok: boolean; file?: string }>
   getRecordingInfo(): Promise<{ recording: boolean; file: string; since: number }>
+  onAutoRecord(cb: (action: 'start' | 'stop') => void): () => void
   getAudioDevices(): Promise<string[]>
   onRecordingState(
     cb: (info: { recording: boolean; file: string; since: number }) => void

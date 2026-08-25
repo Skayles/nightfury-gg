@@ -7,6 +7,8 @@ import {
   Menu,
   Tray,
   nativeImage,
+  session,
+  desktopCapturer,
   type MenuItemConstructorOptions
 } from 'electron'
 import { join } from 'path'
@@ -39,8 +41,9 @@ import {
   openReplay,
   revealReplay,
   deleteReplay,
-  startRecording,
-  stopRecording,
+  startVideoOnly,
+  saveAudio,
+  finishRecording,
   isRecording,
   recordingInfo,
   listAudioDevices
@@ -303,18 +306,13 @@ function onStatus(status: LcuStatus): void {
     gameStartTs = Date.now()
     // gameData (champion) can take a few seconds to populate — refresh once.
     setTimeout(() => void updateDiscord(), 8000)
-    // Auto-record the game if enabled and the engine is present.
+    // Auto-record: the renderer drives audio capture, so ask it to start.
     if (getSettings().replayAuto && !isRecording()) {
-      void startRecording().then((r) => {
-        if (r.ok) send('replay:recording-state', recordingInfo())
-      })
+      send('replay:auto', { action: 'start' })
     }
   }
   if (leftGame && getSettings().replayAuto && isRecording()) {
-    void stopRecording().then(() => {
-      send('replay:recording-state', recordingInfo())
-      send('replay:updated', listReplays())
-    })
+    send('replay:auto', { action: 'stop' })
   }
   lastLcuState = status.state
   lastStatus = status
@@ -345,18 +343,22 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle('replay:remove-engine', () => removeEngine())
-  ipcMain.handle('replay:start-recording', async () => {
-    const r = await startRecording()
+  ipcMain.handle('replay:start-video', () => {
+    const r = startVideoOnly()
     if (r.ok) send('replay:recording-state', recordingInfo())
     return r
   })
-  ipcMain.handle('replay:audio-devices', () => listAudioDevices())
-  ipcMain.handle('replay:stop-recording', async () => {
-    const r = await stopRecording()
+  ipcMain.handle('replay:save-audio', (_e, buf: Uint8Array) => {
+    saveAudio(buf)
+    return { ok: true }
+  })
+  ipcMain.handle('replay:finish', async (_e, offsetMs: number) => {
+    const r = await finishRecording(offsetMs ?? 0)
     send('replay:recording-state', recordingInfo())
     send('replay:updated', listReplays())
     return r
   })
+  ipcMain.handle('replay:audio-devices', () => listAudioDevices())
   ipcMain.handle('replay:recording-info', () => recordingInfo())
   ipcMain.handle('replay:list', () => listReplays())
   ipcMain.handle('replay:pick-folder', async () => {
@@ -562,6 +564,18 @@ app.whenReady().then(async () => {
 
   initDb()
   registerIpc()
+
+  // Allow the renderer to capture system (loopback) audio via getDisplayMedia —
+  // this captures the default playback device's output, never the microphone.
+  session.defaultSession.setDisplayMediaRequestHandler(
+    (_request, callback) => {
+      desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+        callback({ video: sources[0], audio: 'loopback' })
+      })
+    },
+    { useSystemPicker: false }
+  )
+
   createWindow()
 
   app.on('before-quit', () => {

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReplayStatus, ReplayFile } from '../../../preload/index.d'
 import { useT } from '../i18n'
 import { agoShort } from '../lib'
+import LevelMeter from './LevelMeter'
 
 function fmtSize(bytes: number): string {
   if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' Go'
@@ -26,6 +27,9 @@ export default function ReplayPanel(): JSX.Element {
   const [audioInputs, setAudioInputs] = useState<string[]>([])
   const [mic, setMic] = useState(false)
   const [micDevice, setMicDevice] = useState('')
+  const [audioVolume, setAudioVolume] = useState(100)
+  const [micVolume, setMicVolume] = useState(100)
+  const [audioOffset, setAudioOffset] = useState(0)
   const [recording, setRecording] = useState(false)
   const [recError, setRecError] = useState<string | null>(null)
 
@@ -43,6 +47,9 @@ export default function ReplayPanel(): JSX.Element {
     setAudioDevice(settings.replayAudioDevice)
     setMic(settings.replayMic)
     setMicDevice(settings.replayMicDevice)
+    setAudioVolume(settings.replayAudioVolume ?? 100)
+    setMicVolume(settings.replayMicVolume ?? 100)
+    setAudioOffset(settings.replayAudioOffsetMs ?? 0)
   }
 
   async function loadAudioDevices(): Promise<void> {
@@ -95,6 +102,9 @@ export default function ReplayPanel(): JSX.Element {
     replayAudioDevice?: string
     replayMic?: boolean
     replayMicDevice?: string
+    replayAudioVolume?: number
+    replayMicVolume?: number
+    replayAudioOffsetMs?: number
   }): Promise<void> {
     if (patch.replayResolution) setResolution(patch.replayResolution)
     if (patch.replayFps) setFps(patch.replayFps)
@@ -104,6 +114,9 @@ export default function ReplayPanel(): JSX.Element {
     if (patch.replayAudioDevice !== undefined) setAudioDevice(patch.replayAudioDevice)
     if (patch.replayMic !== undefined) setMic(patch.replayMic)
     if (patch.replayMicDevice !== undefined) setMicDevice(patch.replayMicDevice)
+    if (patch.replayAudioVolume !== undefined) setAudioVolume(patch.replayAudioVolume)
+    if (patch.replayMicVolume !== undefined) setMicVolume(patch.replayMicVolume)
+    if (patch.replayAudioOffsetMs !== undefined) setAudioOffset(patch.replayAudioOffsetMs)
     await window.api.setSettings(patch)
   }
 
@@ -115,7 +128,12 @@ export default function ReplayPanel(): JSX.Element {
     const offRec = window.api.onRecordingState((i) => setRecording(i.recording))
     const offList = window.api.onReplaysUpdated((l) => setReplays(l))
     const offSettings = window.api.onSettingsUpdated(() => reload())
+    const offAuto = window.api.onAutoRecord((action) => {
+      if (action === 'start') void startRecording()
+      else void stopRecording()
+    })
     return () => {
+      offAuto()
       offProg()
       offRec()
       offList()
@@ -123,17 +141,136 @@ export default function ReplayPanel(): JSX.Element {
     }
   }, [])
 
-  async function toggleRecording(): Promise<void> {
-    setRecError(null)
-    if (recording) {
-      await window.api.stopRecording()
-      setRecording(false)
-      await reload()
-    } else {
-      const r = await window.api.startRecording()
-      if (r.ok) setRecording(true)
-      else setRecError(r.error ?? 'error')
+  // --- Audio capture (Chromium loopback for PC sound + mic), mixed with gains ---
+  const captureRef = useRef<{
+    recorder: MediaRecorder | null
+    streams: MediaStream[]
+    ctx: AudioContext | null
+    chunks: Blob[]
+  }>({ recorder: null, streams: [], ctx: null, chunks: [] })
+
+  async function startAudioCapture(): Promise<void> {
+    const cap = captureRef.current
+    cap.streams = []
+    cap.chunks = []
+    cap.ctx = null
+    cap.recorder = null
+    const settings = await window.api.getSettings()
+    const wantPc = settings.replayAudio
+    const wantMic = settings.replayMic
+    if (!wantPc && !wantMic) return // video-only
+
+    const ctx = new AudioContext()
+    cap.ctx = ctx
+    const dest = ctx.createMediaStreamDestination()
+
+    if (wantPc) {
+      try {
+        let pcStream: MediaStream | null = null
+        if (settings.replayAudioDevice) {
+          // A specific recording device (Stereo Mix, virtual cable, line-in…).
+          const constraints: MediaStreamConstraints = {
+            audio: await micConstraint(settings.replayAudioDevice)
+          }
+          pcStream = await navigator.mediaDevices.getUserMedia(constraints)
+        } else {
+          // Default playback device via loopback (handled in main). Video is
+          // requested for compatibility, then dropped — we only keep the audio.
+          const disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+          disp.getVideoTracks().forEach((t) => t.stop())
+          pcStream = new MediaStream(disp.getAudioTracks())
+        }
+        if (pcStream && pcStream.getAudioTracks().length) {
+          const src = ctx.createMediaStreamSource(pcStream)
+          const g = ctx.createGain()
+          g.gain.value = (settings.replayAudioVolume ?? 100) / 100
+          src.connect(g).connect(dest)
+          cap.streams.push(pcStream)
+        }
+      } catch {
+        /* source unavailable */
+      }
     }
+    if (wantMic) {
+      try {
+        const constraints: MediaStreamConstraints = settings.replayMicDevice
+          ? { audio: await micConstraint(settings.replayMicDevice) }
+          : { audio: true }
+        const micStream = await navigator.mediaDevices.getUserMedia(constraints)
+        const src = ctx.createMediaStreamSource(micStream)
+        const g = ctx.createGain()
+        g.gain.value = (settings.replayMicVolume ?? 100) / 100
+        src.connect(g).connect(dest)
+        cap.streams.push(micStream)
+      } catch {
+        /* mic unavailable */
+      }
+    }
+
+    const mr = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' })
+    mr.ondataavailable = (e): void => {
+      if (e.data && e.data.size) cap.chunks.push(e.data)
+    }
+    cap.recorder = mr
+    mr.start()
+  }
+
+  async function micConstraint(label: string): Promise<MediaTrackConstraints | boolean> {
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices()
+      const m = devs.find((d) => d.kind === 'audioinput' && d.label === label)
+      if (m) return { deviceId: { exact: m.deviceId } }
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
+
+  async function stopAudioCapture(): Promise<void> {
+    const cap = captureRef.current
+    const mr = cap.recorder
+    if (mr && mr.state !== 'inactive') {
+      await new Promise<void>((res) => {
+        mr.onstop = (): void => res()
+        mr.stop()
+      })
+      const blob = new Blob(cap.chunks, { type: 'audio/webm' })
+      if (blob.size > 0) {
+        const buf = new Uint8Array(await blob.arrayBuffer())
+        await window.api.saveAudio(buf)
+      }
+    }
+    cap.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()))
+    cap.ctx?.close().catch(() => {})
+    captureRef.current = { recorder: null, streams: [], ctx: null, chunks: [] }
+  }
+
+  async function startRecording(): Promise<void> {
+    setRecError(null)
+    const r = await window.api.startVideo()
+    if (!r.ok) {
+      setRecError(r.error ?? 'error')
+      return
+    }
+    try {
+      await startAudioCapture()
+    } catch {
+      /* keep video even if audio fails */
+    }
+    setRecording(true)
+  }
+
+  async function stopRecording(): Promise<void> {
+    await stopAudioCapture()
+    const settings = await window.api.getSettings()
+    await window.api.finishRecording(settings.replayAudioOffsetMs ?? 0)
+    setRecording(false)
+    await reload()
+  }
+
+  async function toggleRecording(): Promise<void> {
+    if (recording) await stopRecording()
+    else await startRecording()
   }
 
   async function download(): Promise<void> {
@@ -172,12 +309,10 @@ export default function ReplayPanel(): JSX.Element {
 
   // Always include the saved device as an option, even before "Detect" is run,
   // so the dropdown shows the remembered selection instead of "auto-detect".
-  const gameOptions =
-    audioDevice && !loopbackInputs.includes(audioDevice)
-      ? [audioDevice, ...loopbackInputs]
-      : loopbackInputs
   const micOptions =
     micDevice && !micInputs.includes(micDevice) ? [micDevice, ...micInputs] : micInputs
+
+  const micMeterLabel = micDevice || ''
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -382,9 +517,9 @@ export default function ReplayPanel(): JSX.Element {
                   onChange={(e) => setQuality({ replayAudioDevice: e.target.value })}
                   className="min-w-0 flex-1 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-slate-200"
                 >
-                  <option value="">{t('replay.audioAuto')}</option>
-                  {gameOptions.map((d) => (
-                    <option key={'o-' + d} value={d}>
+                  <option value="">{t('replay.audioDefault')}</option>
+                  {loopbackInputs.map((d) => (
+                    <option key={'a-' + d} value={d}>
                       {d}
                     </option>
                   ))}
@@ -396,7 +531,22 @@ export default function ReplayPanel(): JSX.Element {
                   {t('replay.detect')}
                 </button>
               </div>
-              <div className="mt-1 text-[11px] text-mute">{t('replay.audioHint')}</div>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="w-16 shrink-0 text-[11px] text-mute">{t('replay.volume')}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={150}
+                  step={5}
+                  value={audioVolume}
+                  onChange={(e) => setQuality({ replayAudioVolume: Number(e.target.value) })}
+                  className="flex-1 accent-teal"
+                />
+                <span className="w-10 shrink-0 text-right text-[11px] text-slate-200">
+                  {audioVolume}%
+                </span>
+              </div>
+              <LevelMeter loopback={!audioDevice} deviceLabel={audioDevice} active={audio} />
             </div>
           )}
         </div>
@@ -436,12 +586,58 @@ export default function ReplayPanel(): JSX.Element {
                   {t('replay.detect')}
                 </button>
               </div>
-              <div className="mt-1 text-[11px] text-mute">{t('replay.micHint')}</div>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="w-16 shrink-0 text-[11px] text-mute">{t('replay.volume')}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={150}
+                  step={5}
+                  value={micVolume}
+                  onChange={(e) => setQuality({ replayMicVolume: Number(e.target.value) })}
+                  className="flex-1 accent-teal"
+                />
+                <span className="w-10 shrink-0 text-right text-[11px] text-slate-200">
+                  {micVolume}%
+                </span>
+              </div>
+              <LevelMeter deviceLabel={micMeterLabel} active={mic} />
             </div>
           )}
         </div>
 
-        <div className="mt-3 text-[11px] text-mute">{t('replay.qualityHint')}</div>
+        {(audio || mic) && (
+          <div className="mt-4">
+            <div className="section-label mb-1.5">{t('replay.sync')}</div>
+            <div className="flex items-center gap-3">
+              <span className="w-16 shrink-0 text-[11px] text-mute">{t('replay.offset')}</span>
+              <input
+                type="range"
+                min={-500}
+                max={500}
+                step={1}
+                value={audioOffset}
+                onChange={(e) => setQuality({ replayAudioOffsetMs: Number(e.target.value) })}
+                className="flex-1 accent-teal"
+              />
+              <input
+                type="number"
+                min={-500}
+                max={500}
+                step={1}
+                value={audioOffset}
+                onChange={(e) => {
+                  const v = Math.max(-500, Math.min(500, Math.round(Number(e.target.value) || 0)))
+                  setQuality({ replayAudioOffsetMs: v })
+                }}
+                className="w-16 shrink-0 rounded-md border border-edge bg-panel2 px-1.5 py-1 text-right text-[11px] text-slate-200"
+              />
+              <span className="shrink-0 text-[11px] text-mute">ms</span>
+            </div>
+            <div className="mt-1 text-[11px] text-mute">{t('replay.syncHint')}</div>
+          </div>
+        )}
+
       </div>
 
       {/* Replay list */}

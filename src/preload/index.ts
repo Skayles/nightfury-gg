@@ -20,9 +20,15 @@ const api = {
   getReplayStatus: () => ipcRenderer.invoke('replay:status'),
   downloadEngine: () => ipcRenderer.invoke('replay:download-engine'),
   removeEngine: () => ipcRenderer.invoke('replay:remove-engine'),
-  startRecording: () => ipcRenderer.invoke('replay:start-recording'),
-  stopRecording: () => ipcRenderer.invoke('replay:stop-recording'),
+  startVideo: () => ipcRenderer.invoke('replay:start-video'),
+  saveAudio: (buf: Uint8Array) => ipcRenderer.invoke('replay:save-audio', buf),
+  finishRecording: (offsetMs: number) => ipcRenderer.invoke('replay:finish', offsetMs),
   getRecordingInfo: () => ipcRenderer.invoke('replay:recording-info'),
+  onAutoRecord: (cb: (action: 'start' | 'stop') => void) => {
+    const h = (_e: unknown, p: { action: 'start' | 'stop' }): void => cb(p.action)
+    ipcRenderer.on('replay:auto', h)
+    return () => ipcRenderer.removeListener('replay:auto', h)
+  },
   getAudioDevices: () => ipcRenderer.invoke('replay:audio-devices'),
   onRecordingState: (cb: (info: { recording: boolean; file: string; since: number }) => void) => {
     const h = (_e: unknown, info: { recording: boolean; file: string; since: number }): void =>

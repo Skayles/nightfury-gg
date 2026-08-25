@@ -14,6 +14,7 @@ import {
   existsSync,
   mkdirSync,
   createWriteStream,
+  writeFileSync,
   renameSync,
   readdirSync,
   statSync,
@@ -164,10 +165,13 @@ export function deleteReplay(path: string): boolean {
   }
 }
 
-// ---- Recording (ffmpeg captures the screen and encodes to MP4) --------------
+// ---- Recording (ffmpeg captures video; PC/mic audio comes from the renderer
+// via Chromium loopback, then gets muxed into the final MP4) ------------------
 let rec: ChildProcess | null = null
 let recFile = ''
 let recStarted = 0
+let videoTmp = ''
+let audioTmp = ''
 
 export function isRecording(): boolean {
   return rec !== null
@@ -309,8 +313,12 @@ function encoderArgs(encoder: string): string[] {
   }
 }
 
-/** Start capturing the screen to an MP4 using the ffmpeg engine + quality settings. */
-export async function startRecording(): Promise<{ ok: boolean; error?: string; file?: string }> {
+/**
+ * Voie A recording: ffmpeg records VIDEO ONLY to a temp file; the renderer
+ * captures PC (loopback) + mic audio via Chromium and sends it here; on stop we
+ * mux the two together (with a sync offset) into the final MP4.
+ */
+export function startVideoOnly(): { ok: boolean; error?: string; file?: string } {
   if (rec) return { ok: false, error: 'already-recording' }
   if (!engineInstalled()) return { ok: false, error: 'no-engine' }
   const s = getSettings()
@@ -321,75 +329,72 @@ export async function startRecording(): Promise<{ ok: boolean; error?: string; f
   } catch (e) {
     return { ok: false, error: String(e) }
   }
-  const file = join(replayDir(), `replay_${stamp()}.mp4`)
+  const ts = stamp()
+  recFile = join(replayDir(), `replay_${ts}.mp4`)
+  videoTmp = join(replayDir(), `.tmp_video_${ts}.mp4`)
+  audioTmp = join(replayDir(), `.tmp_audio_${ts}.webm`)
 
-  // Resolve audio sources (game loopback and/or microphone).
-  let gameDev = ''
-  let micDev = ''
-  const devicesNeeded = s.replayAudio || s.replayMic
-  const detected = devicesNeeded && (!s.replayAudioDevice || !s.replayMicDevice)
-    ? await listAudioDevices()
-    : []
-  if (s.replayAudio) gameDev = s.replayAudioDevice?.trim() || pickAudioDevice(detected)
-  if (s.replayMic) micDev = s.replayMicDevice?.trim() || pickMicDevice(detected)
-
-  const args: string[] = ['-y', ...videoInput(fps, s.replayCapture)]
-  const audioInputs: number[] = []
-  if (gameDev) {
-    args.push('-f', 'dshow', '-i', `audio=${gameDev}`)
-    audioInputs.push(audioInputs.length + 1)
-  }
-  if (micDev && micDev !== gameDev) {
-    args.push('-f', 'dshow', '-i', `audio=${micDev}`)
-    audioInputs.push(audioInputs.length + 1)
-  }
-
-  // ddagrab yields GPU frames — bring them back and normalize before scaling.
   const vf =
     s.replayCapture === 'fullscreen' && process.platform === 'win32'
       ? `hwdownload,format=bgra,scale=-2:${height}`
       : `scale=-2:${height}`
-
-  if (audioInputs.length === 2) {
-    // Mix game + mic into a single stereo track.
-    args.push(
-      '-filter_complex',
-      `[0:v]${vf}[v];[1:a][2:a]amix=inputs=2:duration=longest:dropout_transition=0[a]`,
-      '-map',
-      '[v]',
-      '-map',
-      '[a]'
-    )
-  } else {
-    args.push('-vf', vf)
-  }
-
-  args.push(...encoderArgs(s.replayEncoder), '-pix_fmt', 'yuv420p', '-r', String(fps))
-  // Keyframe every ~2s: smaller files while keeping seeking responsive.
-  args.push('-g', String(fps * 2))
-  if (audioInputs.length > 0) args.push('-c:a', 'aac', '-b:a', '160k')
-  // Move the index to the front so the .mp4 plays/seeks instantly when shared.
-  args.push('-movflags', '+faststart', file)
+  const args = [
+    '-y',
+    ...videoInput(fps, s.replayCapture),
+    '-vf',
+    vf,
+    ...encoderArgs(s.replayEncoder),
+    '-pix_fmt',
+    'yuv420p',
+    '-r',
+    String(fps),
+    '-g',
+    String(fps * 2),
+    videoTmp
+  ]
   try {
     const p = spawn(enginePath(), args, { windowsHide: true })
     p.on('error', () => {
       rec = null
     })
-    p.on('close', () => {
-      rec = null
-    })
     rec = p
-    recFile = file
     recStarted = Date.now()
-    return { ok: true, file }
+    // Fresh audio temp for this recording.
+    try {
+      if (existsSync(audioTmp)) unlinkSync(audioTmp)
+    } catch {
+      /* ignore */
+    }
+    return { ok: true, file: recFile }
   } catch (e) {
     rec = null
     return { ok: false, error: String((e as Error)?.message ?? e) }
   }
 }
 
-/** Stop the current recording, finalizing the MP4 cleanly (sends 'q' to ffmpeg). */
-export function stopRecording(): Promise<{ ok: boolean; file?: string }> {
+/** Append an audio blob (from the renderer's MediaRecorder) to the temp file. */
+export function saveAudio(buf: Uint8Array): void {
+  try {
+    if (audioTmp) writeFileSync(audioTmp, Buffer.from(buf))
+  } catch {
+    /* ignore */
+  }
+}
+
+function runFfmpeg(args: string[]): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const p = spawn(enginePath(), args, { windowsHide: true })
+      p.on('close', () => resolve())
+      p.on('error', () => resolve())
+    } catch {
+      resolve()
+    }
+  })
+}
+
+/** Stop the video capture and mux the renderer audio into the final MP4. */
+export function finishRecording(offsetMs: number): Promise<{ ok: boolean; file?: string }> {
   return new Promise((resolve) => {
     const p = rec
     const file = recFile
@@ -398,15 +403,56 @@ export function stopRecording(): Promise<{ ok: boolean; file?: string }> {
       return
     }
     let done = false
-    const finish = (): void => {
+    const afterVideo = async (): Promise<void> => {
       if (done) return
       done = true
       rec = null
+      const hasAudio = (() => {
+        try {
+          return existsSync(audioTmp) && statSync(audioTmp).size > 0
+        } catch {
+          return false
+        }
+      })()
+      if (hasAudio) {
+        const off = (offsetMs || 0) / 1000
+        await runFfmpeg([
+          '-y',
+          '-i',
+          videoTmp,
+          '-itsoffset',
+          String(off),
+          '-i',
+          audioTmp,
+          '-map',
+          '0:v:0',
+          '-map',
+          '1:a:0',
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '160k',
+          '-shortest',
+          '-movflags',
+          '+faststart',
+          file
+        ])
+      } else {
+        // No audio captured — just finalize the video with a fast-start index.
+        await runFfmpeg(['-y', '-i', videoTmp, '-c', 'copy', '-movflags', '+faststart', file])
+      }
+      try {
+        if (existsSync(videoTmp)) unlinkSync(videoTmp)
+        if (existsSync(audioTmp)) unlinkSync(audioTmp)
+      } catch {
+        /* ignore */
+      }
       resolve({ ok: true, file })
     }
-    p.on('close', finish)
+    p.once('close', afterVideo)
     try {
-      // 'q' asks ffmpeg to stop and write the moov atom so the MP4 is playable.
       p.stdin?.write('q')
       p.stdin?.end()
     } catch {
@@ -423,7 +469,7 @@ export function stopRecording(): Promise<{ ok: boolean; file?: string }> {
         } catch {
           /* ignore */
         }
-        finish()
+        void afterVideo()
       }
     }, 8000)
   })
