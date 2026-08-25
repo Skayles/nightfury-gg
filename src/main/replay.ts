@@ -9,7 +9,7 @@
 
 import { app, net, shell, dialog, desktopCapturer } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
-import { join } from 'path'
+import { join, sep } from 'path'
 import {
   existsSync,
   mkdirSync,
@@ -77,6 +77,9 @@ export function listReplays(): ReplayFile[] {
   if (!existsSync(dir)) return []
   const out: ReplayFile[] = []
   for (const name of readdirSync(dir)) {
+    // Skip our own in-progress temp files (.tmp_video_*.mp4 / .tmp_audio_*.webm),
+    // which would otherwise show up as a replay while a recording is running.
+    if (name.startsWith('.tmp_')) continue
     const dot = name.lastIndexOf('.')
     const ext = dot >= 0 ? name.slice(dot).toLowerCase() : ''
     if (!VIDEO_EXT.has(ext)) continue
@@ -89,6 +92,28 @@ export function listReplays(): ReplayFile[] {
     }
   }
   return out.sort((a, b) => b.mtime - a.mtime)
+}
+
+/**
+ * Drop temp files left behind by a recording that never finished (app killed or
+ * crashed mid-game). A video temp cut short by a hard kill has no moov atom, so
+ * it is not reliably playable — and since listReplays() hides them, they would
+ * otherwise pile up in the replay folder unnoticed.
+ */
+export function cleanupTempFiles(): number {
+  const dir = replayDir()
+  if (!existsSync(dir)) return 0
+  let removed = 0
+  for (const name of readdirSync(dir)) {
+    if (!name.startsWith('.tmp_')) continue
+    try {
+      unlinkSync(join(dir, name))
+      removed++
+    } catch {
+      /* in use or unreadable — leave it */
+    }
+  }
+  return removed
 }
 
 /** Download + unpack the ffmpeg engine, reporting progress via onProgress. */
@@ -156,8 +181,12 @@ export function revealReplay(path: string): void {
 
 export function deleteReplay(path: string): boolean {
   try {
-    // Only allow deleting inside the replay folder, as a safety guard.
-    if (!path.startsWith(replayDir())) return false
+    // Only allow deleting inside the replay folder, as a safety guard. The
+    // trailing separator matters: a bare prefix test would also accept a
+    // sibling folder such as "...\Nightfury.gg-old".
+    const dir = replayDir()
+    const prefix = dir.endsWith(sep) ? dir : dir + sep
+    if (!path.startsWith(prefix)) return false
     unlinkSync(path)
     return true
   } catch {
@@ -172,6 +201,9 @@ let recFile = ''
 let recStarted = 0
 let videoTmp = ''
 let audioTmp = ''
+// True while ffmpeg is muxing a finished recording. Starting a new capture then
+// would reassign the temp paths below while the mux is still reading them.
+let muxing = false
 
 export function isRecording(): boolean {
   return rec !== null
@@ -259,37 +291,6 @@ function parseDshowAudio(buf: string): string[] {
   return [...new Set(names)]
 }
 
-function pickAudioDevice(devices: string[]): string {
-  const priority = [
-    'stereo mix',
-    'loopback',
-    'what u hear',
-    'wave out',
-    'voicemeeter',
-    'cable output',
-    'virtual'
-  ]
-  const lower = devices.map((d) => d.toLowerCase())
-  for (const key of priority) {
-    const i = lower.findIndex((d) => d.includes(key))
-    if (i >= 0) return devices[i]
-  }
-  return devices[0] ?? ''
-}
-
-function pickMicDevice(devices: string[]): string {
-  const lower = devices.map((d) => d.toLowerCase())
-  const loopbackish = ['stereo mix', 'loopback', 'what u hear', 'wave out', 'cable output']
-  const isLoopback = (d: string): boolean => loopbackish.some((k) => d.includes(k))
-  // Prefer an obvious microphone that is not a loopback device.
-  for (const key of ['microphone', 'mic', 'headset', 'input']) {
-    const i = lower.findIndex((d) => d.includes(key) && !isLoopback(d))
-    if (i >= 0) return devices[i]
-  }
-  const i = lower.findIndex((d) => !isLoopback(d))
-  return i >= 0 ? devices[i] : ''
-}
-
 function stamp(): string {
   const d = new Date()
   const p = (n: number): string => String(n).padStart(2, '0')
@@ -333,6 +334,7 @@ function encoderArgs(encoder: string): string[] {
  */
 export function startVideoOnly(): { ok: boolean; error?: string; file?: string } {
   if (rec) return { ok: false, error: 'already-recording' }
+  if (muxing) return { ok: false, error: 'finishing-previous' }
   if (!engineInstalled()) return { ok: false, error: 'no-engine' }
   const s = getSettings()
   const height = s.replayResolution
@@ -385,7 +387,7 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
   }
 }
 
-/** Append an audio blob (from the renderer's MediaRecorder) to the temp file. */
+/** Store the audio blob (from the renderer's MediaRecorder) for this recording. */
 export function saveAudio(buf: Uint8Array): void {
   try {
     if (audioTmp) writeFileSync(audioTmp, Buffer.from(buf))
@@ -410,7 +412,11 @@ function runFfmpeg(args: string[]): Promise<void> {
 export function finishRecording(offsetMs: number): Promise<{ ok: boolean; file?: string }> {
   return new Promise((resolve) => {
     const p = rec
+    // Snapshot the paths: a new recording started later must not repoint the
+    // temp files this mux is still reading from.
     const file = recFile
+    const vTmp = videoTmp
+    const aTmp = audioTmp
     if (!p) {
       resolve({ ok: false })
       return
@@ -420,47 +426,52 @@ export function finishRecording(offsetMs: number): Promise<{ ok: boolean; file?:
       if (done) return
       done = true
       rec = null
-      const hasAudio = (() => {
-        try {
-          return existsSync(audioTmp) && statSync(audioTmp).size > 0
-        } catch {
-          return false
-        }
-      })()
-      if (hasAudio) {
-        const off = (offsetMs || 0) / 1000
-        await runFfmpeg([
-          '-y',
-          '-i',
-          videoTmp,
-          '-itsoffset',
-          String(off),
-          '-i',
-          audioTmp,
-          '-map',
-          '0:v:0',
-          '-map',
-          '1:a:0',
-          '-c:v',
-          'copy',
-          '-c:a',
-          'aac',
-          '-b:a',
-          '160k',
-          '-shortest',
-          '-movflags',
-          '+faststart',
-          file
-        ])
-      } else {
-        // No audio captured — just finalize the video with a fast-start index.
-        await runFfmpeg(['-y', '-i', videoTmp, '-c', 'copy', '-movflags', '+faststart', file])
-      }
+      muxing = true
       try {
-        if (existsSync(videoTmp)) unlinkSync(videoTmp)
-        if (existsSync(audioTmp)) unlinkSync(audioTmp)
-      } catch {
-        /* ignore */
+        const hasAudio = (() => {
+          try {
+            return existsSync(aTmp) && statSync(aTmp).size > 0
+          } catch {
+            return false
+          }
+        })()
+        if (hasAudio) {
+          const off = (offsetMs || 0) / 1000
+          await runFfmpeg([
+            '-y',
+            '-i',
+            vTmp,
+            '-itsoffset',
+            String(off),
+            '-i',
+            aTmp,
+            '-map',
+            '0:v:0',
+            '-map',
+            '1:a:0',
+            '-c:v',
+            'copy',
+            '-c:a',
+            'aac',
+            '-b:a',
+            '160k',
+            '-shortest',
+            '-movflags',
+            '+faststart',
+            file
+          ])
+        } else {
+          // No audio captured — just finalize the video with a fast-start index.
+          await runFfmpeg(['-y', '-i', vTmp, '-c', 'copy', '-movflags', '+faststart', file])
+        }
+        try {
+          if (existsSync(vTmp)) unlinkSync(vTmp)
+          if (existsSync(aTmp)) unlinkSync(aTmp)
+        } catch {
+          /* ignore */
+        }
+      } finally {
+        muxing = false
       }
       resolve({ ok: true, file })
     }

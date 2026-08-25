@@ -266,6 +266,17 @@ export class LcuService {
     return records
   }
 
+  /** Current gameflow phase, or null when the client cannot be reached. */
+  async gameflowPhase(): Promise<string | null> {
+    if (!this.creds) return null
+    try {
+      const p = await this.request<any>('GET', '/lol-gameflow/v1/gameflow-phase')
+      return String(p)
+    } catch {
+      return null
+    }
+  }
+
   /** Champion id the current player is on in the live game (0 if unknown). */
   async currentChampionId(): Promise<number> {
     if (!this.creds || !this.puuid) return 0
@@ -297,17 +308,22 @@ export class LcuService {
     }
     const queueId = gd?.queue?.id ?? gd?.queueId ?? 0
     const champById = ddragonInfo().champions
-    const puuidByImage = new Map<string, string>()
-    const champIdByImage = new Map<string, number>()
-    for (const p of [...(gd?.teamOne ?? []), ...(gd?.teamTwo ?? [])]) {
-      const img = champById[p.championId]
-      if (img) {
-        if (p.puuid) puuidByImage.set(img, p.puuid)
-        champIdByImage.set(img, p.championId)
+    // Keyed per side: in a mirror matchup (same champion on both teams) a single
+    // map would collapse to one puuid and mis-assign one player's scout data.
+    const puuidByImage: Record<'ORDER' | 'CHAOS', Map<string, string>> = {
+      ORDER: new Map(),
+      CHAOS: new Map()
+    }
+    const index = (list: any[], side: 'ORDER' | 'CHAOS'): void => {
+      for (const p of list ?? []) {
+        const img = champById[p.championId]
+        if (img && p.puuid) puuidByImage[side].set(img, p.puuid)
       }
     }
+    index(gd?.teamOne ?? [], 'ORDER')
+    index(gd?.teamTwo ?? [], 'CHAOS')
 
-    const map = (p: any): any => {
+    const map = (side: 'ORDER' | 'CHAOS') => (p: any): any => {
       const championImage = championImageFromLive(p.championName, p.rawChampionName)
       return {
         name: p.riotIdGameName || p.summonerName || p.riotId || '',
@@ -315,11 +331,11 @@ export class LcuService {
         championImage,
         championName: p.championName || '',
         skinId: Number(p.skinID ?? p.skinId ?? 0),
-        puuid: puuidByImage.get(championImage) || ''
+        puuid: puuidByImage[side].get(championImage) || ''
       }
     }
-    const teamOne = players.filter((p: any) => p.team === 'ORDER').map(map)
-    const teamTwo = players.filter((p: any) => p.team === 'CHAOS').map(map)
+    const teamOne = players.filter((p: any) => p.team === 'ORDER').map(map('ORDER'))
+    const teamTwo = players.filter((p: any) => p.team === 'CHAOS').map(map('CHAOS'))
     if (!teamOne.length && !teamTwo.length) return null
     return { teamOne, teamTwo, queueId }
   }
@@ -488,16 +504,11 @@ export class LcuService {
         } else if (mhCombo) {
           mh = await sgpGet(mhCombo.base, mhPath, mhCombo.token)
         }
-        if (mh && !isSgpError(mh)) {
-          rawOk = true
-          if (!sampleMh) sampleMh = mh
-        }
         if (isSgpError(mh)) mh = null
         if (mh) {
           rawOk = true
           if (!sampleMh) sampleMh = mh
         }
-        if (isSgpError(mh)) mh = null
         const games: any[] = mh?.games?.games ?? mh?.games ?? mh?.matches ?? (Array.isArray(mh) ? mh : [])
         const rankedQueues = new Set([420, 440])
         const filterToRanked = rankedQueues.has(queueId)

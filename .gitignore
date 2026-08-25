@@ -21,3 +21,6 @@ Thumbs.db
 google-token.json
 settings.json
 matches.json
+
+# TS incremental build info
+*.tsbuildinfo

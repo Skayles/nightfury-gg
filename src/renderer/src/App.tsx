@@ -8,6 +8,7 @@ import type {
   DdragonInfo
 } from '../../preload/index.d'
 import { LangContext, Lang, makeT } from './i18n'
+import { startRecording, stopRecording } from './recorder'
 import Sidebar, { Tab } from './components/Sidebar'
 import TitleBar from './components/TitleBar'
 import ReplayPanel from './components/ReplayPanel'
@@ -49,6 +50,17 @@ export default function App(): JSX.Element {
     setSettings(s)
     setLang(s.language ?? 'fr')
   }
+
+  // Auto-record is wired here, not in the Replay panel: that panel is mounted
+  // only while its tab is open, so a game starting from any other tab would
+  // never be seen. App is always mounted.
+  useEffect(() => {
+    const off = window.api.onAutoRecord((action) => {
+      if (action === 'start') void startRecording()
+      else void stopRecording()
+    })
+    return () => off()
+  }, [])
 
   useEffect(() => {
     window.api.listMatches().then(setMatches)

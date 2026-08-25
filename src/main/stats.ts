@@ -104,11 +104,6 @@ export function isRanked(queueId: number): boolean {
   return RANKED_QUEUES.has(queueId)
 }
 
-export interface ItemPurchase {
-  itemId: number
-  timestamp: number // ms into the game
-}
-
 export interface TimelineEvent {
   t: number // timestamp in ms
   kind: 'kill' | 'monster' | 'building'

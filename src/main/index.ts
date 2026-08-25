@@ -47,7 +47,8 @@ import {
   isRecording,
   recordingInfo,
   listAudioDevices,
-  listWindows
+  listWindows,
+  cleanupTempFiles
 } from './replay'
 import {
   validateKey,
@@ -300,6 +301,48 @@ function onMatches(records: MatchRecord[], reason: 'backfill' | 'game-end'): voi
   }
 }
 
+// Safety net for auto-record. The gameflow websocket is the primary "the game
+// ended" signal, but it can go silent (client killed, socket dropped) — and a
+// recording that never stops quietly fills the disk with one huge MP4. While an
+// auto recording runs we poll the phase; anything but InProgress ends it.
+let autoWatchdog: ReturnType<typeof setInterval> | null = null
+let autoWatchdogMisses = 0
+
+function stopAutoWatchdog(): void {
+  if (autoWatchdog) clearInterval(autoWatchdog)
+  autoWatchdog = null
+  autoWatchdogMisses = 0
+}
+
+function endAutoRecording(): void {
+  stopAutoWatchdog()
+  send('replay:auto', { action: 'stop' })
+}
+
+function startAutoWatchdog(): void {
+  stopAutoWatchdog()
+  autoWatchdog = setInterval(() => {
+    void (async () => {
+      if (!isRecording()) {
+        // Never started (no engine) or already stopped by hand.
+        stopAutoWatchdog()
+        return
+      }
+      const phase = await lcu.gameflowPhase()
+      if (phase === null) {
+        // Client unreachable — tolerate a couple of blips before giving up.
+        if (++autoWatchdogMisses < 3) return
+      } else if (phase === 'InProgress') {
+        autoWatchdogMisses = 0
+        return
+      }
+      // The websocket never told us; treat the game as over.
+      if (lastLcuState === 'in-game') lastLcuState = 'connected'
+      endAutoRecording()
+    })()
+  }, 10000)
+}
+
 function onStatus(status: LcuStatus): void {
   const enteredGame = status.state === 'in-game' && lastLcuState !== 'in-game'
   const leftGame = lastLcuState === 'in-game' && status.state !== 'in-game'
@@ -310,10 +353,11 @@ function onStatus(status: LcuStatus): void {
     // Auto-record: the renderer drives audio capture, so ask it to start.
     if (getSettings().replayAuto && !isRecording()) {
       send('replay:auto', { action: 'start' })
+      startAutoWatchdog()
     }
   }
   if (leftGame && getSettings().replayAuto && isRecording()) {
-    send('replay:auto', { action: 'stop' })
+    endAutoRecording()
   }
   lastLcuState = status.state
   lastStatus = status
@@ -566,17 +610,17 @@ app.whenReady().then(async () => {
 
   initDb()
   registerIpc()
+  cleanupTempFiles()
 
   // Allow the renderer to capture system (loopback) audio via getDisplayMedia —
   // this captures the default playback device's output, never the microphone.
-  session.defaultSession.setDisplayMediaRequestHandler(
-    (_request, callback) => {
-      desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-        callback({ video: sources[0], audio: 'loopback' })
-      })
-    },
-    { useSystemPicker: false }
-  )
+  // (useSystemPicker only exists from Electron 33 on; on 31 this handler is
+  // always the one used, so passing the option would just be a type error.)
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      callback({ video: sources[0], audio: 'loopback' })
+    })
+  })
 
   createWindow()
 

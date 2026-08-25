@@ -95,11 +95,6 @@ export interface SummonerProfile {
   region: string
 }
 
-export interface ItemPurchase {
-  itemId: number
-  timestamp: number
-}
-
 export interface TimelineEvent {
   t: number
   kind: 'kill' | 'monster' | 'building'
