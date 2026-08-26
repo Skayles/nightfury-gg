@@ -214,6 +214,16 @@ opinions of Riot Games or anyone officially involved in producing or managing
 League of Legends. League of Legends and Riot Games are trademarks or registered
 trademarks of Riot Games, Inc.
 
+### Built with AI assistance
+
+A large part of Nightfury.gg was written with the help of an AI coding
+assistant, then reviewed and tested before each release. This is said plainly
+because you deserve to know how the software you run was made — not as a
+warning: the entire source is in this repository, and it can be read, audited
+and rebuilt by anyone.
+
+If you spot something that looks wrong, please open an issue.
+
 ### License
 
 Released under the [MIT License](LICENSE).
@@ -417,6 +427,16 @@ Nightfury.gg n'est pas approuvé par Riot Games et ne reflète pas les opinions 
 Riot Games ni de quiconque impliqué officiellement dans la production ou la gestion
 de League of Legends. League of Legends et Riot Games sont des marques ou des
 marques déposées de Riot Games, Inc.
+
+### Développé avec l'aide de l'IA
+
+Une grande partie de Nightfury.gg a été écrite avec l'aide d'un assistant de
+code basé sur l'IA, puis relue et testée avant chaque publication. C'est dit
+clairement parce que vous avez le droit de savoir comment le logiciel que vous
+lancez a été fabriqué — et non comme une mise en garde : la totalité du code
+source est dans ce dépôt, lisible, auditable et recompilable par n'importe qui.
+
+Si quelque chose vous semble incorrect, ouvrez une issue.
 
 ### Licence
 
