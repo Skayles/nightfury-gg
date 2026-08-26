@@ -104,6 +104,30 @@ async function riotGet<T>(key: string, host: string, path: string): Promise<T> {
   return data
 }
 
+/**
+ * Run an async mapper over items with a bounded number of requests in flight.
+ * Results keep the input order, which matters for chronological match lists.
+ * Bounded rather than Promise.all: a full page is 20+ calls and a development
+ * key is capped at 20 requests/second.
+ */
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++
+      if (i >= items.length) return
+      out[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
 /** Validate a key by hitting a cheap authenticated endpoint. */
 export async function validateKey(
   key: string,
@@ -241,11 +265,14 @@ export async function riotScout(
   players: { puuid: string; championId: number; teamId?: number }[]
 ): Promise<ScoutResult[]> {
   const { platform, regional } = routing(region)
-  const out: ScoutResult[] = []
   const team = new Map<string, number>()
   const recent = new Map<string, Set<string>>()
 
-  for (const p of players) {
+  const scoutOne = async (p: {
+    puuid: string
+    championId: number
+    teamId?: number
+  }): Promise<ScoutResult> => {
     const res: ScoutResult = {
       puuid: p.puuid,
       rankTier: null,
@@ -259,52 +286,51 @@ export async function riotScout(
       smurf: false,
       premadeGroup: 0
     }
-    team.set(p.puuid, p.teamId ?? 0)
-    if (p.puuid) {
-      try {
-        const entries = await riotGet<LeagueEntry[]>(
-          key,
-          platform,
-          `/lol/league/v4/entries/by-puuid/${p.puuid}`
-        )
-        const solo =
-          entries.find((e) => e.queueType === 'RANKED_SOLO_5x5') ??
-          entries.find((e) => e.queueType === 'RANKED_FLEX_SR')
-        if (solo?.tier) {
-          res.rankTier = solo.tier
-          res.rankDivision = solo.rank ?? null
-          res.rankLp = typeof solo.leaguePoints === 'number' ? solo.leaguePoints : null
-          const g = (solo.wins ?? 0) + (solo.losses ?? 0)
-          res.games = g
-          res.winrate = g > 0 ? Math.round((solo.wins / g) * 100) : null
-        }
-      } catch {
-        /* no rank */
+    if (!p.puuid) return res
+
+    // The three calls are independent of each other, so run them together.
+    const [entries, sm, ids] = await Promise.all([
+      riotGet<LeagueEntry[]>(key, platform, `/lol/league/v4/entries/by-puuid/${p.puuid}`).catch(
+        () => null
+      ),
+      riotGet<{ summonerLevel: number }>(
+        key,
+        platform,
+        `/lol/summoner/v4/summoners/by-puuid/${p.puuid}`
+      ).catch(() => null),
+      riotGet<string[]>(
+        key,
+        regional,
+        `/lol/match/v5/matches/by-puuid/${p.puuid}/ids?start=0&count=6`
+      ).catch(() => null)
+    ])
+
+    if (entries) {
+      const solo =
+        entries.find((e) => e.queueType === 'RANKED_SOLO_5x5') ??
+        entries.find((e) => e.queueType === 'RANKED_FLEX_SR')
+      if (solo?.tier) {
+        res.rankTier = solo.tier
+        res.rankDivision = solo.rank ?? null
+        res.rankLp = typeof solo.leaguePoints === 'number' ? solo.leaguePoints : null
+        const g = (solo.wins ?? 0) + (solo.losses ?? 0)
+        res.games = g
+        res.winrate = g > 0 ? Math.round((solo.wins / g) * 100) : null
       }
-      try {
-        const sm = await riotGet<{ summonerLevel: number }>(
-          key,
-          platform,
-          `/lol/summoner/v4/summoners/by-puuid/${p.puuid}`
-        )
-        res.level = nn(sm.summonerLevel)
-      } catch {
-        /* no level */
-      }
-      try {
-        const ids = await riotGet<string[]>(
-          key,
-          regional,
-          `/lol/match/v5/matches/by-puuid/${p.puuid}/ids?start=0&count=6`
-        )
-        recent.set(p.puuid, new Set(ids))
-      } catch {
-        /* no history */
-      }
-      res.smurf = computeSmurf(res)
     }
-    out.push(res)
+    if (sm) res.level = nn(sm.summonerLevel)
+    if (ids) recent.set(p.puuid, new Set(ids))
+
+    res.smurf = computeSmurf(res)
+    return res
   }
+
+  for (const p of players) team.set(p.puuid, p.teamId ?? 0)
+
+  // Scout the ten players at once rather than one after another: this used to
+  // be ~30 sequential round-trips, and it is the most visible wait in the app.
+  // Promise.all preserves order, which assignPremade and the UI rely on.
+  const out = await Promise.all(players.map(scoutOne))
 
   assignPremade(out, team, recent)
   return out
@@ -428,15 +454,14 @@ export async function playerMatches(
       regional,
       `/lol/match/v5/matches/by-puuid/${acc.puuid}/ids?start=${start}&count=${Math.min(count, 100)}`
     )
-    for (const id of ids) {
+    const fetched = await mapPool(ids, 6, async (id) => {
       try {
-        const m = await riotGet<any>(key, regional, `/lol/match/v5/matches/${id}`)
-        const rec = parseMatchV5(m, acc.puuid)
-        if (rec) out.push(rec)
+        return parseMatchV5(await riotGet<any>(key, regional, `/lol/match/v5/matches/${id}`), acc.puuid)
       } catch {
-        /* skip */
+        return null
       }
-    }
+    })
+    for (const rec of fetched) if (rec) out.push(rec)
   } catch {
     /* none */
   }
@@ -534,15 +559,14 @@ export async function playerProfile(
       regional,
       `/lol/match/v5/matches/by-puuid/${acc.puuid}/ids?start=0&count=${count}`
     )
-    for (const id of ids) {
+    const fetched = await mapPool(ids, 6, async (id) => {
       try {
-        const m = await riotGet<any>(key, regional, `/lol/match/v5/matches/${id}`)
-        const rec = parseMatchV5(m, acc.puuid)
-        if (rec) matches.push(rec)
+        return parseMatchV5(await riotGet<any>(key, regional, `/lol/match/v5/matches/${id}`), acc.puuid)
       } catch {
-        /* skip a bad match */
+        return null
       }
-    }
+    })
+    for (const rec of fetched) if (rec) matches.push(rec)
   } catch {
     /* no history */
   }

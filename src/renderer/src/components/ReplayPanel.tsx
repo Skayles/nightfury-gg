@@ -5,6 +5,17 @@ import { agoShort } from '../lib'
 import LevelMeter from './LevelMeter'
 import * as recorder from '../recorder'
 
+const QUOTA_PRESETS = [10, 25, 50]
+
+function fmtClock(ms: number): string {
+  const total = Math.floor(ms / 1000)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const sec = total % 60
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`
+}
+
 function fmtSize(bytes: number): string {
   if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' Go'
   if (bytes >= 1e6) return (bytes / 1e6).toFixed(0) + ' Mo'
@@ -24,6 +35,7 @@ type QualityPatch = {
   replayAudioVolume?: number
   replayMicVolume?: number
   replayAudioOffsetMs?: number
+  replayMaxGb?: number
 }
 
 export default function ReplayPanel(): JSX.Element {
@@ -50,6 +62,18 @@ export default function ReplayPanel(): JSX.Element {
   const [audioOffset, setAudioOffset] = useState(0)
   const [recording, setRecording] = useState(false)
   const [recError, setRecError] = useState<string | null>(null)
+  const [recDetail, setRecDetail] = useState<string | null>(null)
+  const [recSince, setRecSince] = useState(0)
+  const [elapsed, setElapsed] = useState(0)
+  const [encoders, setEncoders] = useState<string[]>([])
+  const [maxGb, setMaxGb] = useState(0)
+  const [customGb, setCustomGb] = useState(false)
+  const [quota, setQuota] = useState<{
+    usedBytes: number
+    limitBytes: number
+    files: number
+  } | null>(null)
+  const [pruned, setPruned] = useState<string[]>([])
 
   async function reload(): Promise<void> {
     const s = await window.api.getReplayStatus()
@@ -69,6 +93,10 @@ export default function ReplayPanel(): JSX.Element {
     setAudioVolume(settings.replayAudioVolume ?? 100)
     setMicVolume(settings.replayMicVolume ?? 100)
     setAudioOffset(settings.replayAudioOffsetMs ?? 0)
+    const gb = settings.replayMaxGb ?? 0
+    setMaxGb(gb)
+    setCustomGb(gb > 0 && !QUOTA_PRESETS.includes(gb))
+    setQuota(await window.api.getReplayQuota())
   }
 
   async function loadAudioDevices(): Promise<void> {
@@ -137,6 +165,7 @@ export default function ReplayPanel(): JSX.Element {
     if (patch.replayAudioVolume !== undefined) setAudioVolume(patch.replayAudioVolume)
     if (patch.replayMicVolume !== undefined) setMicVolume(patch.replayMicVolume)
     if (patch.replayAudioOffsetMs !== undefined) setAudioOffset(patch.replayAudioOffsetMs)
+    if (patch.replayMaxGb !== undefined) setMaxGb(patch.replayMaxGb)
   }
 
   function flushPending(): void {
@@ -161,13 +190,42 @@ export default function ReplayPanel(): JSX.Element {
     saveTimer.current = setTimeout(flushPending, 300)
   }
 
+  // Elapsed time, driven off the start timestamp main already reports, so it
+  // stays right even when the tab is opened mid-recording.
+  useEffect(() => {
+    if (!recording || !recSince) {
+      setElapsed(0)
+      return
+    }
+    const tick = (): void => setElapsed(Math.max(0, Date.now() - recSince))
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [recording, recSince])
+
   useEffect(() => {
     reload()
     loadAudioDevicesSilent()
-    window.api.getRecordingInfo().then((i) => setRecording(i.recording))
+    window.api.getEncoders().then(setEncoders).catch(() => setEncoders([]))
+    window.api.getRecordingInfo().then((i) => {
+      setRecording(i.recording)
+      setRecSince(i.since)
+    })
     const offProg = window.api.onEngineProgress((p) => setProgress(p))
-    const offRec = window.api.onRecordingState((i) => setRecording(i.recording))
-    const offList = window.api.onReplaysUpdated((l) => setReplays(l))
+    const offRec = window.api.onRecordingState((i) => {
+      setRecording(i.recording)
+      setRecSince(i.since)
+    })
+    const offFail = window.api.onRecordingFailed((info) => {
+      setRecording(false)
+      setRecError(t('replay.err_' + info.reason))
+      setRecDetail(info.detail || null)
+    })
+    const offList = window.api.onReplaysUpdated((l) => {
+      setReplays(l)
+      window.api.getReplayQuota().then(setQuota).catch(() => {})
+    })
+    const offPruned = window.api.onReplaysPruned((names) => setPruned(names))
     const offSettings = window.api.onSettingsUpdated(() => {
       // Skip the echo of a write we have not flushed yet — reloading now would
       // snap the slider being dragged back to the stored value.
@@ -176,6 +234,8 @@ export default function ReplayPanel(): JSX.Element {
     })
     return () => {
       flushPending()
+      offFail()
+      offPruned()
       offProg()
       offRec()
       offList()
@@ -185,9 +245,10 @@ export default function ReplayPanel(): JSX.Element {
 
   async function startRecording(): Promise<void> {
     setRecError(null)
+    setRecDetail(null)
     const r = await recorder.startRecording()
     if (!r.ok) {
-      setRecError(r.error ?? 'error')
+      setRecError(t('replay.err_' + (r.error ?? 'error')))
       return
     }
     setRecording(true)
@@ -264,6 +325,9 @@ export default function ReplayPanel(): JSX.Element {
             </div>
             <div className="mt-0.5 text-xs text-mute">
               {resolution}p · {fps} fps
+              {recording && (
+                <span className="ml-2 font-mono text-slate-300">{fmtClock(elapsed)}</span>
+              )}
             </div>
           </div>
         </div>
@@ -283,7 +347,14 @@ export default function ReplayPanel(): JSX.Element {
       {!status?.installed && (
         <div className="mb-4 text-xs text-mute">{t('replay.needEngine')}</div>
       )}
-      {recError && <div className="mb-4 text-xs text-loss">{recError}</div>}
+      {recError && (
+        <div className="mb-4 rounded-lg border border-loss/40 bg-loss/10 px-4 py-3">
+          <div className="text-xs font-medium text-loss">{recError}</div>
+          {recDetail && (
+            <div className="mt-1 break-all font-mono text-[10px] text-mute">{recDetail}</div>
+          )}
+        </div>
+      )}
 
       {/* Engine card */}
       <div className="card mb-4 p-5">
@@ -337,19 +408,122 @@ export default function ReplayPanel(): JSX.Element {
       </div>
 
       {/* Folder card */}
-      <div className="card mb-4 flex items-center justify-between gap-4 p-5">
-        <div className="min-w-0">
-          <div className="text-sm font-medium text-slate-200">{t('replay.folder')}</div>
-          <div className="mt-0.5 truncate text-xs text-mute" title={folder}>
-            {folder || '—'}
+      <div className="card mb-4 p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-slate-200">{t('replay.folder')}</div>
+            <div className="mt-0.5 truncate text-xs text-mute" title={folder}>
+              {folder || '—'}
+            </div>
           </div>
+          <button
+            onClick={pickFolder}
+            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm font-medium text-slate-200 hover:border-teal hover:text-teal"
+          >
+            {t('replay.change')}
+          </button>
         </div>
-        <button
-          onClick={pickFolder}
-          className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm font-medium text-slate-200 hover:border-teal hover:text-teal"
-        >
-          {t('replay.change')}
-        </button>
+
+        <div className="mt-4 border-t border-edge/60 pt-4">
+          <div className="section-label mb-1.5">{t('replay.limit')}</div>
+          <div className="segmented">
+            {QUOTA_PRESETS.map((g) => (
+              <button
+                key={g}
+                onClick={() => {
+                  setCustomGb(false)
+                  setQuality({ replayMaxGb: g })
+                }}
+                className={
+                  'segmented-item ' +
+                  (!customGb && maxGb === g ? 'segmented-item-active' : 'segmented-item-idle')
+                }
+              >
+                {g} Go
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                setCustomGb(true)
+                if (QUOTA_PRESETS.includes(maxGb) || maxGb === 0) setQuality({ replayMaxGb: 100 })
+              }}
+              className={
+                'segmented-item ' + (customGb ? 'segmented-item-active' : 'segmented-item-idle')
+              }
+            >
+              {t('replay.limitCustom')}
+            </button>
+            <button
+              onClick={() => {
+                setCustomGb(false)
+                setQuality({ replayMaxGb: 0 })
+              }}
+              className={
+                'segmented-item ' +
+                (maxGb === 0 && !customGb ? 'segmented-item-active' : 'segmented-item-idle')
+              }
+            >
+              {t('replay.limitNone')}
+            </button>
+          </div>
+
+          {customGb && (
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                type="number"
+                min={1}
+                max={2000}
+                step={1}
+                value={maxGb || ''}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.min(2000, Math.round(Number(e.target.value) || 0)))
+                  setQualityDeferred({ replayMaxGb: v })
+                }}
+                className="w-24 rounded-md border border-edge bg-panel2 px-2 py-1 text-right text-xs text-slate-200"
+              />
+              <span className="text-xs text-mute">Go</span>
+            </div>
+          )}
+
+          {quota && (
+            <div className="mt-2.5">
+              {quota.limitBytes > 0 ? (
+                <>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-panel2">
+                    <div
+                      className={
+                        'h-full transition-all ' +
+                        (quota.usedBytes / quota.limitBytes > 0.9 ? 'bg-gold' : 'bg-teal')
+                      }
+                      style={{ width: `${Math.min(100, Math.round((quota.usedBytes / quota.limitBytes) * 100))}%` }}
+                    />
+                  </div>
+                  <div className="mt-1 text-[11px] text-mute">
+                    {t('replay.limitUsed', {
+                      used: fmtSize(quota.usedBytes),
+                      total: fmtSize(quota.limitBytes),
+                      n: quota.files
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="text-[11px] text-mute">
+                  {t('replay.limitUsedNone', { used: fmtSize(quota.usedBytes), n: quota.files })}
+                </div>
+              )}
+              <div className="mt-1 text-[11px] text-mute">{t('replay.limitHint')}</div>
+            </div>
+          )}
+
+          {pruned.length > 0 && (
+            <div className="mt-2 rounded-md border border-edge bg-panel2/40 px-3 py-2 text-[11px] text-mute">
+              {t('replay.limitPruned', { n: pruned.length })}
+              <button onClick={() => setPruned([])} className="ml-2 text-teal hover:underline">
+                {t('replay.limitPrunedOk')}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Quality card */}
@@ -394,19 +568,28 @@ export default function ReplayPanel(): JSX.Element {
         <div className="mt-4">
           <div className="section-label mb-1.5">{t('replay.encoder')}</div>
           <div className="segmented">
-            {(['cpu', 'amd', 'nvidia', 'intel'] as const).map((e) => (
-              <button
-                key={e}
-                onClick={() => setQuality({ replayEncoder: e })}
-                className={
-                  'segmented-item ' +
-                  (encoder === e ? 'segmented-item-active' : 'segmented-item-idle')
-                }
-              >
-                {t('replay.enc_' + e)}
-              </button>
-            ))}
+            {(['cpu', 'amd', 'nvidia', 'intel'] as const).map((e) => {
+              // Empty list = not probed yet (or no engine): leave everything on.
+              const usable = encoders.length === 0 || encoders.includes(e)
+              return (
+                <button
+                  key={e}
+                  onClick={() => setQuality({ replayEncoder: e })}
+                  disabled={!usable}
+                  title={usable ? undefined : t('replay.encUnavailable')}
+                  className={
+                    'segmented-item disabled:cursor-not-allowed disabled:opacity-40 ' +
+                    (encoder === e ? 'segmented-item-active' : 'segmented-item-idle')
+                  }
+                >
+                  {t('replay.enc_' + e)}
+                </button>
+              )
+            })}
           </div>
+          {encoders.length > 0 && encoders.length < 4 && (
+            <div className="mt-1 text-[11px] text-mute">{t('replay.encProbed')}</div>
+          )}
         </div>
         <div className="mt-4">
           <div className="section-label mb-1.5">{t('replay.capture')}</div>

@@ -185,6 +185,7 @@ export interface AppSettings {
   replayAudioVolume: number
   replayMicVolume: number
   replayAudioOffsetMs: number
+  replayMaxGb: number
   replayAuto: boolean
 }
 
@@ -237,6 +238,10 @@ export interface Api {
   getRecordingInfo(): Promise<{ recording: boolean; file: string; since: number }>
   onAutoRecord(cb: (action: 'start' | 'stop') => void): () => void
   getAudioDevices(): Promise<string[]>
+  getEncoders(): Promise<string[]>
+  getReplayQuota(): Promise<{ usedBytes: number; limitBytes: number; files: number }>
+  onReplaysPruned(cb: (names: string[]) => void): () => void
+  onRecordingFailed(cb: (info: { reason: string; detail: string }) => void): () => void
   getWindows(): Promise<string[]>
   onRecordingState(
     cb: (info: { recording: boolean; file: string; since: number }) => void

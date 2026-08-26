@@ -48,6 +48,11 @@ import {
   recordingInfo,
   listAudioDevices,
   listWindows,
+  listEncoders,
+  resetEncoderCache,
+  enforceQuota,
+  quotaInfo,
+  onRecordingFailure,
   cleanupTempFiles
 } from './replay'
 import {
@@ -389,12 +394,16 @@ function registerIpc(): void {
   ipcMain.handle('replay:download-engine', async () => {
     try {
       await downloadEngine((done, total) => send('replay:download-progress', { done, total }))
+      resetEncoderCache()
       return { ok: true }
     } catch (e) {
       return { ok: false, error: String((e as Error)?.message ?? e) }
     }
   })
-  ipcMain.handle('replay:remove-engine', () => removeEngine())
+  ipcMain.handle('replay:remove-engine', () => {
+    resetEncoderCache()
+    return removeEngine()
+  })
   ipcMain.handle('replay:start-video', () => {
     const r = startVideoOnly()
     if (r.ok) send('replay:recording-state', recordingInfo())
@@ -407,10 +416,14 @@ function registerIpc(): void {
   ipcMain.handle('replay:finish', async (_e, offsetMs: number) => {
     const r = await finishRecording(offsetMs ?? 0)
     send('replay:recording-state', recordingInfo())
+    const pruned = enforceQuota()
+    if (pruned.length) send('replay:pruned', pruned)
     send('replay:updated', listReplays())
     return r
   })
   ipcMain.handle('replay:audio-devices', () => listAudioDevices())
+  ipcMain.handle('replay:encoders', () => listEncoders())
+  ipcMain.handle('replay:quota', () => quotaInfo())
   ipcMain.handle('replay:windows', () => listWindows())
   ipcMain.handle('replay:recording-info', () => recordingInfo())
   ipcMain.handle('replay:list', () => listReplays())
@@ -451,6 +464,13 @@ function registerIpc(): void {
       send('ddragon:updated', ddragonInfo())
       updateDiscord()
       refreshTrayMenu()
+    }
+    if (patch && typeof patch.replayMaxGb === 'number' && !isRecording()) {
+      const pruned = enforceQuota()
+      if (pruned.length) {
+        send('replay:pruned', pruned)
+        send('replay:updated', listReplays())
+      }
     }
     if (patch && typeof patch.discordEnabled === 'boolean') {
       if (patch.discordEnabled) {
@@ -618,6 +638,16 @@ app.whenReady().then(async () => {
   initDb()
   registerIpc()
   cleanupTempFiles()
+  enforceQuota()
+
+  // ffmpeg dying on its own is not a stop: tear the auto-record watchdog down,
+  // tell the renderer to drop its audio capture, and surface the reason.
+  onRecordingFailure((info) => {
+    stopAutoWatchdog()
+    send('replay:failed', info)
+    send('replay:recording-state', recordingInfo())
+    send('replay:updated', listReplays())
+  })
 
   // Allow the renderer to capture system (loopback) audio via getDisplayMedia —
   // this captures the default playback device's output, never the microphone.

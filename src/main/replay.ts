@@ -15,12 +15,14 @@ import {
   mkdirSync,
   createWriteStream,
   writeFileSync,
+  appendFileSync,
   renameSync,
   readdirSync,
   statSync,
   unlinkSync
 } from 'fs'
 import { createGunzip } from 'zlib'
+import { statfsSync } from 'fs'
 import { getSettings, setSettings } from './store'
 
 // ffmpeg static binary (gzipped) — Node's built-in zlib unpacks it, so no extra
@@ -116,6 +118,20 @@ export function cleanupTempFiles(): number {
   return removed
 }
 
+// Refuse to start a recording with less than this much room left.
+const MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024
+
+/** Free bytes on the volume holding the replay folder (Infinity if unknown). */
+export function freeSpaceBytes(): number {
+  try {
+    const st = statfsSync(replayDir())
+    return st.bsize * st.bavail
+  } catch {
+    // Folder not created yet, or an OS that will not tell us — do not block.
+    return Number.POSITIVE_INFINITY
+  }
+}
+
 /** Download + unpack the ffmpeg engine, reporting progress via onProgress. */
 export function downloadEngine(onProgress: (done: number, total: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -179,6 +195,83 @@ export function revealReplay(path: string): void {
   shell.showItemInFolder(path)
 }
 
+/**
+ * True for a file this app produced itself: `replay_YYYY-MM-DD_HH-MM-SS.mp4`.
+ *
+ * The quota only ever deletes these. The replay folder is user-chosen and may
+ * well be a general Videos folder, so automatically pruning "whatever video is
+ * oldest" could destroy footage the app never created.
+ */
+export function isOwnRecording(name: string): boolean {
+  const prefix = 'replay_'
+  const lower = name.toLowerCase()
+  if (!lower.startsWith(prefix) || !lower.endsWith('.mp4')) return false
+  const stamp = name.slice(prefix.length, name.length - 4)
+  const shape = 'dddd-dd-dd_dd-dd-dd'
+  if (stamp.length !== shape.length) return false
+  for (let i = 0; i < shape.length; i++) {
+    const c = stamp[i]
+    if (shape[i] === 'd') {
+      if (c < '0' || c > '9') return false
+    } else if (c !== shape[i]) return false
+  }
+  return true
+}
+
+/** Total bytes used by this app's own recordings. */
+export function ownRecordingsSize(): number {
+  return listReplays()
+    .filter((r) => isOwnRecording(r.name))
+    .reduce((sum, r) => sum + r.size, 0)
+}
+
+export interface QuotaInfo {
+  usedBytes: number
+  limitBytes: number
+  files: number
+}
+
+export function quotaInfo(): QuotaInfo {
+  const gb = getSettings().replayMaxGb || 0
+  const own = listReplays().filter((r) => isOwnRecording(r.name))
+  return {
+    usedBytes: own.reduce((sum, r) => sum + r.size, 0),
+    limitBytes: gb > 0 ? gb * 1024 * 1024 * 1024 : 0,
+    files: own.length
+  }
+}
+
+/**
+ * Delete this app's oldest recordings until the folder fits the configured cap.
+ * Returns the files removed (empty when there is no cap or nothing to do).
+ */
+export function enforceQuota(): string[] {
+  const gb = getSettings().replayMaxGb || 0
+  if (gb <= 0) return [] // unlimited
+  const limit = gb * 1024 * 1024 * 1024
+
+  // Oldest first, so we drop the least interesting footage.
+  const own = listReplays()
+    .filter((r) => isOwnRecording(r.name))
+    .sort((a, b) => a.mtime - b.mtime)
+
+  let used = own.reduce((sum, r) => sum + r.size, 0)
+  const removed: string[] = []
+  for (const r of own) {
+    if (used <= limit) break
+    // Never delete the file currently being written.
+    if (r.path === recFile) continue
+    try {
+      unlinkSync(r.path)
+      used -= r.size
+      removed.push(r.name)
+    } catch {
+      /* locked or gone — skip it rather than spin */
+    }
+  }
+  return removed
+}
+
 export function deleteReplay(path: string): boolean {
   try {
     // Only allow deleting inside the replay folder, as a safety guard. The
@@ -204,6 +297,47 @@ let audioTmp = ''
 // True while ffmpeg is muxing a finished recording. Starting a new capture then
 // would reassign the temp paths below while the mux is still reading them.
 let muxing = false
+// Tail of ffmpeg's stderr, kept so a failure can be explained instead of just
+// leaving the user with no file and no reason.
+let recStderr = ''
+// True once WE asked ffmpeg to stop, which tells the 'close' handler that the
+// exit was expected and belongs to finishRecording().
+let stopping = false
+let failureCb: ((info: { reason: string; detail: string }) => void) | null = null
+
+/** Called when ffmpeg dies on its own — i.e. the recording never really ran. */
+export function onRecordingFailure(
+  cb: (info: { reason: string; detail: string }) => void
+): void {
+  failureCb = cb
+}
+
+/**
+ * Pick the line of ffmpeg's stderr that actually explains the failure. ffmpeg
+ * prints its whole configuration first, so the useful part is near the end.
+ */
+function explainFfmpegError(buf: string): string {
+  const lines = buf
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+  const telling = [
+    /unknown encoder/i,
+    /cannot load/i,
+    /not supported/i,
+    /no such file or directory/i,
+    /permission denied/i,
+    /could not open/i,
+    /failed to/i,
+    /invalid/i,
+    /error/i
+  ]
+  for (const rx of telling) {
+    const hit = [...lines].reverse().find((l) => rx.test(l))
+    if (hit) return hit.slice(0, 240)
+  }
+  return lines[lines.length - 1]?.slice(0, 240) ?? ''
+}
 
 export function isRecording(): boolean {
   return rec !== null
@@ -239,6 +373,94 @@ export async function listWindows(): Promise<string[]> {
   } catch {
     return []
   }
+}
+
+/**
+ * Which of our four encoder choices this machine can actually use.
+ *
+ * Note that `ffmpeg -encoders` is useless here: it lists what was compiled into
+ * the binary, and the static build we download ships NVENC and QSV whatever GPU
+ * is present. The only honest test is to actually open the encoder, so we run a
+ * throwaway 128x128 encode against each one and keep those that exit cleanly.
+ *
+ * Picking an encoder the hardware cannot open makes ffmpeg exit a moment after
+ * spawning, which used to look exactly like a working recording.
+ */
+const ENCODER_CODEC: Record<string, string> = {
+  cpu: 'libx264',
+  amd: 'h264_amf',
+  nvidia: 'h264_nvenc',
+  intel: 'h264_qsv'
+}
+
+let encoderCache: string[] | null = null
+
+function canEncode(codec: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false
+    const done = (v: boolean): void => {
+      if (settled) return
+      settled = true
+      resolve(v)
+    }
+    try {
+      const p = spawn(
+        enginePath(),
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-f',
+          'lavfi',
+          '-i',
+          'nullsrc=s=128x128:d=0.1',
+          '-c:v',
+          codec,
+          '-f',
+          'null',
+          '-'
+        ],
+        { windowsHide: true }
+      )
+      // A wedged driver must not hang the probe.
+      const guard = setTimeout(() => {
+        try {
+          p.kill()
+        } catch {
+          /* ignore */
+        }
+        done(false)
+      }, 8000)
+      p.on('error', () => {
+        clearTimeout(guard)
+        done(false)
+      })
+      p.on('close', (code) => {
+        clearTimeout(guard)
+        done(code === 0)
+      })
+    } catch {
+      done(false)
+    }
+  })
+}
+
+export async function listEncoders(): Promise<string[]> {
+  if (encoderCache) return encoderCache
+  if (!engineInstalled()) return ['cpu']
+  const out: string[] = []
+  for (const [id, codec] of Object.entries(ENCODER_CODEC)) {
+    if (await canEncode(codec)) out.push(id)
+  }
+  // Never hand back an empty list: libx264 is always there in practice, and an
+  // empty result would disable every button in the UI.
+  encoderCache = out.length ? out : ['cpu']
+  return encoderCache
+}
+
+/** Forget the probe result, e.g. after the engine is re-downloaded. */
+export function resetEncoderCache(): void {
+  encoderCache = null
 }
 
 /** Enumerate DirectShow audio inputs (Windows) so the user can pick a device. */
@@ -344,6 +566,10 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
   } catch (e) {
     return { ok: false, error: String(e) }
   }
+  // A 1080p60 game runs to roughly a gigabyte; starting one on a nearly full
+  // disk produces a truncated file and can wedge the whole system. Measured
+  // after ensureDir, since statfs needs the folder to exist.
+  if (freeSpaceBytes() < MIN_FREE_BYTES) return { ok: false, error: 'low-disk' }
   const ts = stamp()
   recFile = join(replayDir(), `replay_${ts}.mp4`)
   videoTmp = join(replayDir(), `.tmp_video_${ts}.mp4`)
@@ -369,8 +595,25 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
   ]
   try {
     const p = spawn(enginePath(), args, { windowsHide: true })
-    p.on('error', () => {
+    recStderr = ''
+    stopping = false
+    // ffmpeg reports everything on stderr; keep only the tail for diagnostics.
+    p.stderr?.on('data', (d: Buffer) => {
+      recStderr = (recStderr + d.toString()).slice(-4000)
+    })
+    p.on('error', (e) => {
+      if (rec !== p) return
       rec = null
+      failureCb?.({ reason: 'spawn-failed', detail: String(e?.message ?? e) })
+    })
+    // A wrong encoder (NVENC on an AMD card), an unavailable ddagrab or a stale
+    // window title all let ffmpeg spawn fine and then exit a moment later. Left
+    // unhandled, rec stayed set and isRecording() lied for the rest of the run.
+    p.on('close', () => {
+      if (stopping || rec !== p) return
+      rec = null
+      cleanupTempFiles()
+      failureCb?.({ reason: 'engine-failed', detail: explainFfmpegError(recStderr) })
     })
     rec = p
     recStarted = Date.now()
@@ -387,10 +630,17 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
   }
 }
 
-/** Store the audio blob (from the renderer's MediaRecorder) for this recording. */
+/**
+ * Append one audio chunk from the renderer's MediaRecorder.
+ *
+ * The renderer streams chunks every few seconds rather than handing over one
+ * blob at the end: buffering a whole game meant ~30 MB sitting in renderer
+ * memory, and a crash mid-game lost all of the audio even though the video was
+ * already on disk. Concatenated MediaRecorder chunks form a valid WebM stream.
+ */
 export function saveAudio(buf: Uint8Array): void {
   try {
-    if (audioTmp) writeFileSync(audioTmp, Buffer.from(buf))
+    if (audioTmp) appendFileSync(audioTmp, Buffer.from(buf))
   } catch {
     /* ignore */
   }
@@ -475,6 +725,7 @@ export function finishRecording(offsetMs: number): Promise<{ ok: boolean; file?:
       }
       resolve({ ok: true, file })
     }
+    stopping = true
     p.once('close', afterVideo)
     try {
       p.stdin?.write('q')

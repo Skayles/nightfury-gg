@@ -8,7 +8,7 @@ import type {
   DdragonInfo
 } from '../../preload/index.d'
 import { LangContext, Lang, makeT } from './i18n'
-import { startRecording, stopRecording } from './recorder'
+import { startRecording, stopRecording, abortRecording } from './recorder'
 import Sidebar, { Tab } from './components/Sidebar'
 import TitleBar from './components/TitleBar'
 import ReplayPanel from './components/ReplayPanel'
@@ -59,7 +59,13 @@ export default function App(): JSX.Element {
       if (action === 'start') void startRecording()
       else void stopRecording()
     })
-    return () => off()
+    // The engine can die on its own (wrong encoder, capture source gone). Drop
+    // the audio capture here too, wherever the user happens to be in the UI.
+    const offFail = window.api.onRecordingFailed(() => void abortRecording())
+    return () => {
+      off()
+      offFail()
+    }
   }, [])
 
   useEffect(() => {

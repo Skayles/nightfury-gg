@@ -16,10 +16,20 @@ interface Capture {
   recorder: MediaRecorder | null
   streams: MediaStream[]
   ctx: AudioContext | null
-  chunks: Blob[]
+  // Chunks are shipped to main as they arrive; this chains the sends so they
+  // reach the file in order, and gives stop() something to await.
+  writes: Promise<void>
 }
 
-const empty = (): Capture => ({ recorder: null, streams: [], ctx: null, chunks: [] })
+const empty = (): Capture => ({
+  recorder: null,
+  streams: [],
+  ctx: null,
+  writes: Promise.resolve()
+})
+
+// How often MediaRecorder hands us a chunk to flush to disk.
+const CHUNK_MS = 5000
 
 let cap: Capture = empty()
 // Guards against a manual click and an auto-record trigger overlapping.
@@ -95,24 +105,30 @@ async function startAudioCapture(): Promise<void> {
 
   const mr = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' })
   mr.ondataavailable = (e): void => {
-    if (e.data && e.data.size) cap.chunks.push(e.data)
+    if (!e.data || !e.data.size) return
+    const blob = e.data
+    cap.writes = cap.writes.then(async () => {
+      try {
+        await window.api.saveAudio(new Uint8Array(await blob.arrayBuffer()))
+      } catch {
+        /* a dropped chunk costs a few seconds of audio, not the recording */
+      }
+    })
   }
   cap.recorder = mr
-  mr.start()
+  mr.start(CHUNK_MS)
 }
 
 async function stopAudioCapture(): Promise<void> {
   const mr = cap.recorder
   if (mr && mr.state !== 'inactive') {
+    // stop() emits one last dataavailable before onstop; wait for that final
+    // chunk to be written before letting main mux the file.
     await new Promise<void>((res) => {
       mr.onstop = (): void => res()
       mr.stop()
     })
-    const blob = new Blob(cap.chunks, { type: 'audio/webm' })
-    if (blob.size > 0) {
-      const buf = new Uint8Array(await blob.arrayBuffer())
-      await window.api.saveAudio(buf)
-    }
+    await cap.writes
   }
   cap.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()))
   cap.ctx?.close().catch(() => {})
@@ -144,6 +160,26 @@ export async function startRecording(): Promise<{ ok: boolean; error?: string }>
   } finally {
     transitioning = false
   }
+}
+
+/**
+ * ffmpeg died on its own — there is no video to mux against, so tear the audio
+ * capture down and keep nothing. Without this the microphone and the loopback
+ * stream would stay open for the rest of the session.
+ */
+export async function abortRecording(): Promise<void> {
+  const mr = cap.recorder
+  if (mr && mr.state !== 'inactive') {
+    try {
+      mr.stop()
+    } catch {
+      /* already gone */
+    }
+  }
+  cap.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()))
+  cap.ctx?.close().catch(() => {})
+  cap = empty()
+  transitioning = false
 }
 
 /** Stop the capture and mux the audio in. Safe to call when not recording. */

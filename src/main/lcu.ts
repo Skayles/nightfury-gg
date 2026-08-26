@@ -246,21 +246,22 @@ export class LcuService {
     //    game detail — the summary list only fully populates the current
     //    summoner's stats, so team totals (and thus KP) are wrong from it.
     const skip = this.skipIds()
-    const records: MatchRecord[] = []
-    for (const g of summaries) {
-      const id = g.gameId
-      if (typeof id === 'number' && skip.has(id)) continue
+    const wanted = summaries.filter((g) => !(typeof g.gameId === 'number' && skip.has(g.gameId)))
 
+    // A schema bump re-fetches every stored game — up to 300 details, which one
+    // at a time made the first launch crawl. The client is local, so a handful
+    // of concurrent requests is comfortable.
+    const fetched = await mapPool(wanted, 6, async (g) => {
       let parsed: MatchRecord | null = null
       try {
-        const detail = await this.request<any>('GET', `/lol-match-history/v1/games/${id}`)
-        parsed = parseGame(detail, this.puuid)
+        const detail = await this.request<any>('GET', `/lol-match-history/v1/games/${g.gameId}`)
+        parsed = parseGame(detail, this.puuid as string)
       } catch {
         /* detail unavailable → fall back to the summary object */
       }
-      if (!parsed) parsed = parseGame(g, this.puuid)
-      if (parsed) records.push(parsed)
-    }
+      return parsed ?? parseGame(g, this.puuid as string)
+    })
+    const records: MatchRecord[] = fetched.filter((r): r is MatchRecord => r !== null)
 
     this.matchesCb(records, reason)
     return records
@@ -422,46 +423,42 @@ export class LcuService {
     const { ctx, diag } = await this.buildSgpContext()
     if (!ctx) return { results: [], diag }
 
-    const results: ScoutResult[] = []
     let rawOk = false
-    let sampleRanked: any = null
     let sampleMh: any = null
     const ppBase = ctx.base.replace('.lol.sgp.pvp.net', '.pp.sgp.pvp.net')
     const mhProbe: { label: string; status: number; body?: string }[] = []
     let mhCombo: { base: string; token: string; label: string } | null = null
-    let probed = false
-    for (const inp of inputs) {
-      if (!inp.puuid) continue
-      const res: ScoutResult = {
-        puuid: inp.puuid,
-        rankTier: null,
-        rankDivision: null,
-        rankLp: null,
-        winrate: null,
-        games: null,
-        champGames: null,
-        champWinrate: null
-      }
-      // Ranked
+
+    const mhPath = (puuid: string): string =>
+      `/match-history-query/v1/products/lol/player/${puuid}/SUMMONER?startIndex=0&count=20`
+
+    const valid = inputs.filter((i) => i.puuid)
+    const blank = (puuid: string): ScoutResult => ({
+      puuid,
+      rankTier: null,
+      rankDivision: null,
+      rankLp: null,
+      winrate: null,
+      games: null,
+      champGames: null,
+      champWinrate: null
+    })
+
+    /** Ranked tier/division/LP for one player, from the ledge host. */
+    const fetchRanked = async (puuid: string): Promise<Partial<ScoutResult>> => {
       try {
-        const r = await sgpGet(
-          ctx.base,
-          `/leagues-ledge/v2/rankedStats/puuid/${inp.puuid}`,
-          ctx.sessionToken
-        )
-        if (r) {
-          rawOk = true
-          if (!sampleRanked) sampleRanked = r
-        }
+        const r = await sgpGet(ctx.base, `/leagues-ledge/v2/rankedStats/puuid/${puuid}`, ctx.sessionToken)
+        if (r) rawOk = true
         const arr: any[] = Array.isArray(r) ? r : (r?.queues ?? r?.queueMap ?? [])
         const list = Array.isArray(arr) ? arr : Object.values(arr)
         const solo = list.find(
           (q: any) => q?.queueType === 'RANKED_SOLO_5x5' || q?.queue === 'RANKED_SOLO_5x5'
         )
-        if (solo?.tier) {
-          res.rankTier = solo.tier
-          res.rankDivision = solo.rank ?? solo.division ?? null
-          res.rankLp =
+        if (!solo?.tier) return {}
+        return {
+          rankTier: solo.tier,
+          rankDivision: solo.rank ?? solo.division ?? null,
+          rankLp:
             typeof solo.leaguePoints === 'number'
               ? solo.leaguePoints
               : typeof solo.lp === 'number'
@@ -469,92 +466,113 @@ export class LcuService {
                 : null
         }
       } catch {
-        /* ignore */
+        return {}
       }
-      // Match history → winrate + champion stats. Ranked lives on the ledge
-      // host; match history may live on the pp host — try both.
-      try {
-        const mhPath = `/match-history-query/v1/products/lol/player/${inp.puuid}/SUMMONER?startIndex=0&count=20`
-        let mh: any = null
-        if (!probed) {
-          probed = true
-          const hostSet = Array.from(new Set([ctx.base, ppBase, ...ctx.hosts]))
-          const combos: { label: string; base: string; token: string }[] = []
-          for (const h of hostSet) {
-            if (ctx.rsoToken) combos.push({ label: `${h} | rso`, base: h, token: ctx.rsoToken })
-            if (ctx.sessionToken)
-              combos.push({ label: `${h} | session`, base: h, token: ctx.sessionToken })
-          }
-          for (const c of combos) {
-            const raw = await httpsGetRaw(c.base + mhPath, {
-              Authorization: `Bearer ${c.token}`,
-              Accept: 'application/json'
-            })
-            mhProbe.push({
-              label: c.label,
-              status: raw.status,
-              body: raw.status === 200 ? undefined : (raw.text || '').slice(0, 80)
-            })
-            if (raw.status === 200 && raw.json && !isSgpError(raw.json)) {
-              mhCombo = { base: c.base, token: c.token, label: c.label }
-              mh = raw.json
-              break
-            }
-          }
-        } else if (mhCombo) {
-          mh = await sgpGet(mhCombo.base, mhPath, mhCombo.token)
-        }
-        if (isSgpError(mh)) mh = null
-        if (mh) {
-          rawOk = true
-          if (!sampleMh) sampleMh = mh
-        }
-        const games: any[] = mh?.games?.games ?? mh?.games ?? mh?.matches ?? (Array.isArray(mh) ? mh : [])
-        const rankedQueues = new Set([420, 440])
-        const filterToRanked = rankedQueues.has(queueId)
-        let w = 0
-        let g = 0
-        let cw = 0
-        let cg = 0
-        for (const gm of games) {
-          // SGP stores the flat match under `.json`; match-v5 nests under `.info`.
-          const info = gm?.json ?? gm?.info ?? gm
-          if (!info) continue
-          const q = info.queueId ?? info.queue ?? 0
-          // In a ranked game, only count ranked history; otherwise count all.
-          if (filterToRanked && !rankedQueues.has(q)) continue
-          let parts: any[] = info.participants ?? []
-          // Legacy shape: puuid lives in participantIdentities.
-          if (parts.length && parts[0] && parts[0].puuid === undefined && info.participantIdentities) {
-            const idOf = new Map<number, string>()
-            for (const pi of info.participantIdentities)
-              if (pi?.player?.puuid) idOf.set(pi.participantId, pi.player.puuid)
-            parts = parts.map((p: any) => ({ ...p, puuid: idOf.get(p.participantId) }))
-          }
-          const me = parts.find((p: any) => p.puuid === inp.puuid)
-          if (!me) continue
-          const win = me.win ?? me.stats?.win ?? false
-          const champId = me.championId ?? me.stats?.championId ?? 0
-          g++
-          if (win) w++
-          if (inp.championId && champId === inp.championId) {
-            cg++
-            if (win) cw++
-          }
-        }
-        if (g > 0) {
-          res.games = g
-          res.winrate = Math.round((w / g) * 100)
-        }
-        if (cg > 0) {
-          res.champGames = cg
-          res.champWinrate = Math.round((cw / cg) * 100)
-        }
-      } catch {
-        /* ignore */
-      }
-      results.push(res)
     }
+
+    /** Winrate + per-champion record, read out of one match-history payload. */
+    const readHistory = (
+      mh: any,
+      inp: { puuid: string; championId: number }
+    ): Partial<ScoutResult> => {
+      const games: any[] =
+        mh?.games?.games ?? mh?.games ?? mh?.matches ?? (Array.isArray(mh) ? mh : [])
+      const rankedQueues = new Set([420, 440])
+      const filterToRanked = rankedQueues.has(queueId)
+      let w = 0
+      let g = 0
+      let cw = 0
+      let cg = 0
+      for (const gm of games) {
+        // SGP stores the flat match under `.json`; match-v5 nests under `.info`.
+        const info = gm?.json ?? gm?.info ?? gm
+        if (!info) continue
+        const q = info.queueId ?? info.queue ?? 0
+        // In a ranked game, only count ranked history; otherwise count all.
+        if (filterToRanked && !rankedQueues.has(q)) continue
+        let parts: any[] = info.participants ?? []
+        // Legacy shape: puuid lives in participantIdentities.
+        if (parts.length && parts[0] && parts[0].puuid === undefined && info.participantIdentities) {
+          const idOf = new Map<number, string>()
+          for (const pi of info.participantIdentities)
+            if (pi?.player?.puuid) idOf.set(pi.participantId, pi.player.puuid)
+          parts = parts.map((p: any) => ({ ...p, puuid: idOf.get(p.participantId) }))
+        }
+        const me = parts.find((p: any) => p.puuid === inp.puuid)
+        if (!me) continue
+        const win = me.win ?? me.stats?.win ?? false
+        const champId = me.championId ?? me.stats?.championId ?? 0
+        g++
+        if (win) w++
+        if (inp.championId && champId === inp.championId) {
+          cg++
+          if (win) cw++
+        }
+      }
+      const out: Partial<ScoutResult> = {}
+      if (g > 0) {
+        out.games = g
+        out.winrate = Math.round((w / g) * 100)
+      }
+      if (cg > 0) {
+        out.champGames = cg
+        out.champWinrate = Math.round((cw / cg) * 100)
+      }
+      return out
+    }
+
+    // Ranked is a plain per-player GET, so fire all ten at once.
+    const rankedAll = await Promise.all(valid.map((i) => fetchRanked(i.puuid)))
+
+    // Match history is different: we first have to discover which host/token
+    // pair actually answers. That probe walks a matrix of combinations and must
+    // stay sequential — running it for every player would multiply it by ten.
+    // So: probe on the first player, then fetch the rest in parallel.
+    let firstMh: any = null
+    if (valid.length) {
+      const hostSet = Array.from(new Set([ctx.base, ppBase, ...ctx.hosts]))
+      const combos: { label: string; base: string; token: string }[] = []
+      for (const h of hostSet) {
+        if (ctx.rsoToken) combos.push({ label: `${h} | rso`, base: h, token: ctx.rsoToken })
+        if (ctx.sessionToken) combos.push({ label: `${h} | session`, base: h, token: ctx.sessionToken })
+      }
+      for (const c of combos) {
+        const raw = await httpsGetRaw(c.base + mhPath(valid[0].puuid), {
+          Authorization: `Bearer ${c.token}`,
+          Accept: 'application/json'
+        })
+        mhProbe.push({
+          label: c.label,
+          status: raw.status,
+          body: raw.status === 200 ? undefined : (raw.text || '').slice(0, 80)
+        })
+        if (raw.status === 200 && raw.json && !isSgpError(raw.json)) {
+          mhCombo = { base: c.base, token: c.token, label: c.label }
+          firstMh = raw.json
+          break
+        }
+      }
+    }
+
+    const combo = mhCombo
+    const restMh = combo
+      ? await Promise.all(
+          valid
+            .slice(1)
+            .map((i) => sgpGet(combo.base, mhPath(i.puuid), combo.token).catch(() => null))
+        )
+      : valid.slice(1).map(() => null)
+
+    const results: ScoutResult[] = valid.map((inp, i) => {
+      let mh = i === 0 ? firstMh : restMh[i - 1]
+      if (isSgpError(mh)) mh = null
+      if (mh) {
+        rawOk = true
+        if (!sampleMh) sampleMh = mh
+      }
+      return { ...blank(inp.puuid), ...rankedAll[i], ...(mh ? readHistory(mh, inp) : {}) }
+    })
+
     const gotRank = results.some((r) => r.rankTier !== null)
     const gotGames = results.some((r) => r.games !== null)
     diag.ok = gotRank || gotGames
@@ -693,6 +711,30 @@ export class LcuService {
       /* noop */
     }
   }
+}
+
+/**
+ * Run an async mapper over items with a bounded number of requests in flight.
+ * Results keep the input order, which matters for chronological match lists.
+ * Bounded rather than Promise.all: a full page is 20+ calls and a development
+ * key is capped at 20 requests/second.
+ */
+async function mapPool<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++
+      if (i >= items.length) return
+      out[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
 }
 
 /** GET the local in-game Live Client Data API (self-signed cert on port 2999). */

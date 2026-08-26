@@ -58,6 +58,9 @@ export interface Settings {
   replayMicVolume: number
   // Audio sync offset in ms (+ = audio later) to align renderer audio with video.
   replayAudioOffsetMs: number
+  // Cap on the disk space this app's own recordings may use, in GB.
+  // 0 = unlimited. When exceeded, the oldest recordings are deleted first.
+  replayMaxGb: number
   // Auto-record games detected by the client (manual otherwise).
   replayAuto: boolean
 }
@@ -86,7 +89,8 @@ const defaults: Settings = {
   replayMicDevice: '',
   replayAudioVolume: 100,
   replayMicVolume: 100,
-  replayAudioOffsetMs: 0
+  replayAudioOffsetMs: 0,
+  replayMaxGb: 0
 }
 
 let cache: Settings | null = null

@@ -30,6 +30,18 @@ const api = {
     return () => ipcRenderer.removeListener('replay:auto', h)
   },
   getAudioDevices: () => ipcRenderer.invoke('replay:audio-devices'),
+  getEncoders: () => ipcRenderer.invoke('replay:encoders'),
+  getReplayQuota: () => ipcRenderer.invoke('replay:quota'),
+  onReplaysPruned: (cb: (names: string[]) => void) => {
+    const h = (_e: unknown, names: string[]): void => cb(names)
+    ipcRenderer.on('replay:pruned', h)
+    return () => ipcRenderer.removeListener('replay:pruned', h)
+  },
+  onRecordingFailed: (cb: (info: { reason: string; detail: string }) => void) => {
+    const h = (_e: unknown, info: { reason: string; detail: string }): void => cb(info)
+    ipcRenderer.on('replay:failed', h)
+    return () => ipcRenderer.removeListener('replay:failed', h)
+  },
   getWindows: () => ipcRenderer.invoke('replay:windows'),
   onRecordingState: (cb: (info: { recording: boolean; file: string; since: number }) => void) => {
     const h = (_e: unknown, info: { recording: boolean; file: string; since: number }): void =>
