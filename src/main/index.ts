@@ -625,6 +625,15 @@ function registerIpc(): void {
   })
 }
 
+// Stable data folder, decoupled from the display name: renaming/rebranding the
+// app must never move the user's stored history (%APPDATA%/nightfury).
+//
+// This must run before the single-instance lock and before any path is read:
+// the lock is namespaced by the app name, so setting it later let the dev build
+// and the packaged build take two different locks, run at once, and then
+// collide on one another's Chromium cache.
+app.setName('nightfury')
+
 // Single instance: if the app is already running (e.g. hidden in the tray),
 // relaunching the .exe just reveals the existing window instead of doing nothing.
 if (!app.requestSingleInstanceLock()) {
@@ -634,9 +643,6 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(async () => {
-  // Stable data folder, decoupled from the display name: renaming/rebranding
-  // the app must never move the user's stored history (%APPDATA%/nightfury).
-  app.setName('nightfury')
   electronApp.setAppUserModelId('com.nightfury.app')
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
 

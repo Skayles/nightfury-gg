@@ -381,14 +381,80 @@ function videoInput(fps: number, mode: string, windowTitle?: string): string[] {
   return ['-f', 'x11grab', '-framerate', String(fps), '-i', ':0.0']
 }
 
-/** List open window titles so the user can capture a specific one. */
+/**
+ * Window titles the user can point a 'window' capture at.
+ *
+ * Two sources, merged. desktopCapturer only reports windows Chromium can
+ * actually capture right now, which drops anything minimised or cloaked — so a
+ * game sitting in the taskbar simply never appeared in the list. Windows itself
+ * has no such restriction, so we ask it too and take the union.
+ *
+ * gdigrab matches on the exact title, which is what both sources return.
+ */
+function systemWindowTitles(): Promise<string[]> {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      resolve([])
+      return
+    }
+    const script =
+      '[Console]::OutputEncoding=[Text.Encoding]::UTF8; ' +
+      'Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { $_.MainWindowTitle }'
+    try {
+      const p = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-Command', script],
+        { windowsHide: true }
+      )
+      let out = ''
+      p.stdout?.on('data', (d: Buffer) => {
+        out += d.toString('utf8')
+      })
+      const guard = setTimeout(() => {
+        try {
+          p.kill()
+        } catch {
+          /* ignore */
+        }
+        resolve([])
+      }, 5000)
+      p.on('error', () => {
+        clearTimeout(guard)
+        resolve([])
+      })
+      p.on('close', () => {
+        clearTimeout(guard)
+        resolve(
+          out
+            .split(/\r?\n/)
+            .map((l) => l.trim())
+            .filter(Boolean)
+        )
+      })
+    } catch {
+      resolve([])
+    }
+  })
+}
+
 export async function listWindows(): Promise<string[]> {
-  try {
-    const sources = await desktopCapturer.getSources({ types: ['window'] })
-    return sources.map((s) => s.name).filter((n) => !!n)
-  } catch {
-    return []
+  // thumbnailSize 0 skips rendering a preview for every window — we only ever
+  // use the name, and capturing thumbnails is the slow part of getSources().
+  const fromChromium = desktopCapturer
+    .getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 } })
+    .then((sources) => sources.map((s) => s.name).filter(Boolean))
+    .catch(() => [] as string[])
+
+  const [chromium, system] = await Promise.all([fromChromium, systemWindowTitles()])
+
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const name of [...chromium, ...system]) {
+    if (!name || seen.has(name)) continue
+    seen.add(name)
+    out.push(name)
   }
+  return out.sort((a, b) => a.localeCompare(b))
 }
 
 /**
