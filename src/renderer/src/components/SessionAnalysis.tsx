@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 import type { MatchRecord, DdragonInfo } from '../../../preload/index.d'
 import { useT, type TFunc } from '../i18n'
 import { champIcon, perChampion, fmtDate, gamesLabel } from '../lib'

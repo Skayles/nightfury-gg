@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import type { LcuStatus, ExportStatus } from '../../../preload/index.d'
 import { useT } from '../i18n'
 

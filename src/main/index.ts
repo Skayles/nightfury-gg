@@ -239,8 +239,15 @@ function createWindow(): void {
       createTray()
     }
   })
+  // Open outward links in the real browser, never in an app window — and only
+  // http(s), so a crafted link can't hand an arbitrary scheme to the OS.
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    try {
+      const { protocol } = new URL(details.url)
+      if (protocol === 'http:' || protocol === 'https:') shell.openExternal(details.url)
+    } catch {
+      /* not a URL we can vet — drop it */
+    }
     return { action: 'deny' }
   })
 

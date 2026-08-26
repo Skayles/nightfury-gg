@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import type { Lang } from '../i18n'
 import type { AppSettings } from '../../../preload/index.d'
 import { useT } from '../i18n'

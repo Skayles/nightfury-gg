@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { DdragonInfo } from '../../../preload/index.d'
 import { spellIcon } from '../lib'

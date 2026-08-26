@@ -1,6 +1,25 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/*
+ * Theme (Tailwind v4 is configured in CSS, not tailwind.config.js).
+ * Subject-grounded palette: deep client-night blue + hextech teal + gold win /
+ * garnet loss.
+ */
+@theme {
+  --color-night: #0b1622;
+  --color-panel: #0f1e2e;
+  --color-panel2: #132a3e;
+  --color-edge: #1e3a52;
+  --color-teal: #2dd4bf;
+  --color-gold: #c8a04a;
+  --color-win: #2e9e7b;
+  --color-loss: #c0435a;
+  --color-mute: #7c93a8;
+
+  --font-display: 'Rajdhani', 'Inter Variable', Inter, system-ui, sans-serif;
+  --font-body: 'Inter Variable', Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
 
 @layer components {
   /* Reusable surface tokens for a consistent, "pro dashboard" look. */

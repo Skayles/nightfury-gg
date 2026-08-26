@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import type { SummonerProfile } from '../../../preload/index.d'
 import { useT } from '../i18n'
 import { fmtRank, rankEmblem } from '../lib'

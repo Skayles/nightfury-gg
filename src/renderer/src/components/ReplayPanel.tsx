@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ReplayStatus, ReplayFile } from '../../../preload/index.d'
 import { useT } from '../i18n'
 import { agoShort } from '../lib'

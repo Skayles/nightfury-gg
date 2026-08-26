@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type JSX } from 'react'
 import type { MatchRecord, AppSettings, ExportStatus, MatchFilter } from '../../../preload/index.d'
 import { useT } from '../i18n'
 import FilterBar from './FilterBar'

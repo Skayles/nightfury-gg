@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode, type MouseEvent } from 'react'
+import { useEffect, useState, type ReactNode, type MouseEvent, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import type { MatchRecord, MatchDetails, DdragonInfo, TimelineEvent, ScorePlayer } from '../../../preload/index.d'
 import { useT, type TFunc } from '../i18n'

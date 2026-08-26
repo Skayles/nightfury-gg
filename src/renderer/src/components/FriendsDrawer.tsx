@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type JSX } from 'react'
 import type { Friend, DdragonInfo } from '../../../preload/index.d'
 import { useT, type TFunc } from '../i18n'
 import { profileIcon, champIcon } from '../lib'

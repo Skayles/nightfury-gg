@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 import type { MatchRecord, MatchFilter } from '../../../preload/index.d'
 import { useT } from '../i18n'
 

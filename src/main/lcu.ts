@@ -721,7 +721,14 @@ function liveClientGet(path: string): Promise<any> {
   })
 }
 
-/** External HTTPS GET returning status + parsed JSON + raw text snippet. */
+/**
+ * External HTTPS GET returning status + parsed JSON + raw text snippet.
+ *
+ * Certificate verification stays ON here, unlike liveClientGet(): these calls go
+ * to Riot's public SGP servers and carry the user's league-session / RSO bearer
+ * token in an Authorization header. Accepting any certificate would let anyone
+ * positioned in the middle (proxy, hostile Wi-Fi) lift that token.
+ */
 function httpsGetRaw(
   url: string,
   headers: Record<string, string>
@@ -741,7 +748,6 @@ function httpsGetRaw(
         path: u.pathname + u.search,
         method: 'GET',
         headers,
-        rejectUnauthorized: false,
         timeout: 6000
       },
       (res) => {
