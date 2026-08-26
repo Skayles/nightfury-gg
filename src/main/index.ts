@@ -50,6 +50,7 @@ import {
   listWindows,
   listEncoders,
   resetEncoderCache,
+  setAudioStart,
   enforceQuota,
   quotaInfo,
   onRecordingFailure,
@@ -422,6 +423,10 @@ function registerIpc(): void {
     return r
   })
   ipcMain.handle('replay:audio-devices', () => listAudioDevices())
+  ipcMain.handle('replay:audio-started', (_e, ts: number) => {
+    setAudioStart(typeof ts === 'number' ? ts : Date.now())
+    return { ok: true }
+  })
   ipcMain.handle('replay:encoders', () => listEncoders())
   ipcMain.handle('replay:quota', () => quotaInfo())
   ipcMain.handle('replay:windows', () => listWindows())
@@ -639,6 +644,9 @@ app.whenReady().then(async () => {
   registerIpc()
   cleanupTempFiles()
   enforceQuota()
+  // Probe the encoders once up front so 'auto' can resolve synchronously the
+  // first time a recording starts, rather than falling back to the CPU.
+  void listEncoders()
 
   // ffmpeg dying on its own is not a stop: tear the auto-record watchdog down,
   // tell the renderer to drop its audio capture, and surface the reason.

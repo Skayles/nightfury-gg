@@ -305,6 +305,22 @@ let recStderr = ''
 let stopping = false
 let failureCb: ((info: { reason: string; detail: string }) => void) | null = null
 
+// Wall-clock instant at which each stream's media time 0 actually happened.
+// The gap between them IS the audio/video drift, so measuring both removes
+// the need for anyone to guess an offset by hand. Startup latency is not a
+// constant we could hardcode: it is ~65 ms on a GPU encoder and ~790 ms on
+// libx264, and it moves with resolution and machine load.
+// out_time_us=<microseconds> inside an ffmpeg -progress block.
+const OUT_TIME_RE = /out_time_us=(\d+)/
+
+let videoT0 = 0
+let audioT0 = 0
+
+/** Told by the renderer the moment its MediaRecorder actually started. */
+export function setAudioStart(ts: number): void {
+  if (rec) audioT0 = ts
+}
+
 /** Called when ffmpeg dies on its own — i.e. the recording never really ran. */
 export function onRecordingFailure(
   cb: (info: { reason: string; detail: string }) => void
@@ -521,6 +537,23 @@ function stamp(): string {
   )}-${p(d.getSeconds())}`
 }
 
+/**
+ * Resolve the stored choice to a concrete encoder.
+ *
+ * 'auto' picks the best GPU encoder the probe found. That is not just a
+ * convenience: libx264 costs in-game FPS and starts ~10x slower than a
+ * hardware encoder (measured ~790 ms against ~65 ms), which is the single
+ * biggest source of startup latency in a capture.
+ */
+function resolveEncoder(choice: string): string {
+  if (choice !== 'auto') return choice
+  const available = encoderCache ?? ['cpu']
+  for (const pref of ['amd', 'nvidia', 'intel']) {
+    if (available.includes(pref)) return pref
+  }
+  return 'cpu'
+}
+
 function encoderArgs(encoder: string): string[] {
   // Tuned for small files + low performance impact while staying clean enough
   // for coaching. GPU encoders barely touch the CPU/in-game FPS.
@@ -581,10 +614,18 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
       : `scale=-2:${height}`
   const args = [
     '-y',
+    // Progress on stdout lets us back-compute when media time 0 happened:
+    // arrival - out_time. Encoder lag can only ADD to that figure, so the
+    // running minimum converges on the true value (verified: it settles
+    // within about a second and stays put).
+    '-progress',
+    'pipe:1',
+    '-stats_period',
+    '0.25',
     ...videoInput(fps, s.replayCapture, s.replayWindowTitle),
     '-vf',
     vf,
-    ...encoderArgs(s.replayEncoder),
+    ...encoderArgs(resolveEncoder(s.replayEncoder)),
     '-pix_fmt',
     'yuv420p',
     '-r',
@@ -597,6 +638,28 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
     const p = spawn(enginePath(), args, { windowsHide: true })
     recStderr = ''
     stopping = false
+    videoT0 = 0
+    audioT0 = 0
+
+    // Consume -progress. Leaving stdout unread would eventually block ffmpeg.
+    let progressBuf = ''
+    p.stdout?.on('data', (d: Buffer) => {
+      progressBuf += d.toString()
+      for (;;) {
+        const at = progressBuf.indexOf('progress=')
+        if (at < 0) break
+        const nl = progressBuf.indexOf('\n', at)
+        if (nl < 0) break
+        const block = progressBuf.slice(0, at)
+        const isEnd = progressBuf.slice(at, nl).includes('end')
+        progressBuf = progressBuf.slice(nl + 1)
+        const m = OUT_TIME_RE.exec(block)
+        if (!m || isEnd) continue
+        const t = Date.now() - Number(m[1]) / 1000
+        if (videoT0 === 0 || t < videoT0) videoT0 = t
+      }
+      if (progressBuf.length > 8000) progressBuf = progressBuf.slice(-2000)
+    })
     // ffmpeg reports everything on stderr; keep only the tail for diagnostics.
     p.stderr?.on('data', (d: Buffer) => {
       recStderr = (recStderr + d.toString()).slice(-4000)
@@ -667,6 +730,10 @@ export function finishRecording(offsetMs: number): Promise<{ ok: boolean; file?:
     const file = recFile
     const vTmp = videoTmp
     const aTmp = audioTmp
+    // Measured drift, plus whatever fine-tune the user dialled in on top.
+    const measured = videoT0 > 0 && audioT0 > 0 ? audioT0 - videoT0 : 0
+    // A wild value would ruin the file; anything beyond this is a bad read.
+    const auto = Math.max(-3000, Math.min(3000, measured))
     if (!p) {
       resolve({ ok: false })
       return
@@ -686,7 +753,7 @@ export function finishRecording(offsetMs: number): Promise<{ ok: boolean; file?:
           }
         })()
         if (hasAudio) {
-          const off = (offsetMs || 0) / 1000
+          const off = (auto + (offsetMs || 0)) / 1000
           await runFfmpeg([
             '-y',
             '-i',

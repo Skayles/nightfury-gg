@@ -25,7 +25,7 @@ function fmtSize(bytes: number): string {
 type QualityPatch = {
   replayResolution?: 720 | 1080 | 1440
   replayFps?: 30 | 60
-  replayEncoder?: 'cpu' | 'amd' | 'nvidia' | 'intel'
+  replayEncoder?: 'auto' | 'cpu' | 'amd' | 'nvidia' | 'intel'
   replayCapture?: 'windowed' | 'fullscreen' | 'window'
   replayWindowTitle?: string
   replayAudio?: boolean
@@ -48,7 +48,7 @@ export default function ReplayPanel(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [resolution, setResolution] = useState<720 | 1080 | 1440>(1080)
   const [fps, setFps] = useState<30 | 60>(60)
-  const [encoder, setEncoder] = useState<'cpu' | 'amd' | 'nvidia' | 'intel'>('cpu')
+  const [encoder, setEncoder] = useState<'auto' | 'cpu' | 'amd' | 'nvidia' | 'intel'>('auto')
   const [capture, setCapture] = useState<'windowed' | 'fullscreen' | 'window'>('windowed')
   const [windowTitle, setWindowTitle] = useState('')
   const [windows, setWindows] = useState<string[]>([])
@@ -568,9 +568,9 @@ export default function ReplayPanel(): JSX.Element {
         <div className="mt-4">
           <div className="section-label mb-1.5">{t('replay.encoder')}</div>
           <div className="segmented">
-            {(['cpu', 'amd', 'nvidia', 'intel'] as const).map((e) => {
+            {(['auto', 'cpu', 'amd', 'nvidia', 'intel'] as const).map((e) => {
               // Empty list = not probed yet (or no engine): leave everything on.
-              const usable = encoders.length === 0 || encoders.includes(e)
+              const usable = e === 'auto' || encoders.length === 0 || encoders.includes(e)
               return (
                 <button
                   key={e}
@@ -748,12 +748,13 @@ export default function ReplayPanel(): JSX.Element {
         {(audio || mic) && (
           <div className="mt-4">
             <div className="section-label mb-1.5">{t('replay.sync')}</div>
+            <div className="mb-2 text-[11px] text-mute">{t('replay.syncAuto')}</div>
             <div className="flex items-center gap-3">
               <span className="w-16 shrink-0 text-[11px] text-mute">{t('replay.offset')}</span>
               <input
                 type="range"
-                min={-500}
-                max={500}
+                min={-200}
+                max={200}
                 step={1}
                 value={audioOffset}
                 onChange={(e) => setQualityDeferred({ replayAudioOffsetMs: Number(e.target.value) })}
@@ -761,12 +762,12 @@ export default function ReplayPanel(): JSX.Element {
               />
               <input
                 type="number"
-                min={-500}
-                max={500}
+                min={-200}
+                max={200}
                 step={1}
                 value={audioOffset}
                 onChange={(e) => {
-                  const v = Math.max(-500, Math.min(500, Math.round(Number(e.target.value) || 0)))
+                  const v = Math.max(-200, Math.min(200, Math.round(Number(e.target.value) || 0)))
                   setQualityDeferred({ replayAudioOffsetMs: v })
                 }}
                 className="w-16 shrink-0 rounded-md border border-edge bg-panel2 px-1.5 py-1 text-right text-[11px] text-slate-200"
@@ -774,6 +775,14 @@ export default function ReplayPanel(): JSX.Element {
               <span className="shrink-0 text-[11px] text-mute">ms</span>
             </div>
             <div className="mt-1 text-[11px] text-mute">{t('replay.syncHint')}</div>
+            {audioOffset !== 0 && (
+              <button
+                onClick={() => setQualityDeferred({ replayAudioOffsetMs: 0 })}
+                className="mt-1.5 text-[11px] text-teal hover:underline"
+              >
+                {t('replay.syncReset')}
+              </button>
+            )}
           </div>
         )}
 

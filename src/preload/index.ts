@@ -31,6 +31,7 @@ const api = {
   },
   getAudioDevices: () => ipcRenderer.invoke('replay:audio-devices'),
   getEncoders: () => ipcRenderer.invoke('replay:encoders'),
+  audioStarted: (ts: number) => ipcRenderer.invoke('replay:audio-started', ts),
   getReplayQuota: () => ipcRenderer.invoke('replay:quota'),
   onReplaysPruned: (cb: (names: string[]) => void) => {
     const h = (_e: unknown, names: string[]): void => cb(names)

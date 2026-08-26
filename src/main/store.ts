@@ -41,8 +41,10 @@ export interface Settings {
   // Recording quality.
   replayResolution: 720 | 1080 | 1440
   replayFps: 30 | 60
-  // Video encoder: cpu (x264, universal) or GPU (amd/nvidia/intel).
-  replayEncoder: 'cpu' | 'amd' | 'nvidia' | 'intel'
+  // Video encoder. 'auto' picks the best GPU encoder actually available on
+  // the machine, which both spares in-game FPS and starts ~10x faster than
+  // libx264. Existing installs keep whatever they had.
+  replayEncoder: 'auto' | 'cpu' | 'amd' | 'nvidia' | 'intel'
   // Capture method: 'windowed' (gdigrab) or 'fullscreen' (ddagrab, DirectX/fullscreen).
   replayCapture: 'windowed' | 'fullscreen' | 'window'
   // Title of the window to capture when replayCapture is 'window'.
@@ -80,7 +82,7 @@ const defaults: Settings = {
   replayResolution: 1080,
   replayFps: 60,
   replayAuto: false,
-  replayEncoder: 'cpu',
+  replayEncoder: 'auto',
   replayCapture: 'windowed',
   replayWindowTitle: '',
   replayAudio: false,

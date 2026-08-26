@@ -115,6 +115,11 @@ async function startAudioCapture(): Promise<void> {
       }
     })
   }
+  // The gap between this instant and ffmpeg's own start is the drift that
+  // main corrects for, so report it rather than make anyone dial it in.
+  mr.onstart = (): void => {
+    void window.api.audioStarted(Date.now())
+  }
   cap.recorder = mr
   mr.start(CHUNK_MS)
 }

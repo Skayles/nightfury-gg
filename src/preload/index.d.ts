@@ -175,7 +175,7 @@ export interface AppSettings {
   replayFolder: string
   replayResolution: 720 | 1080 | 1440
   replayFps: 30 | 60
-  replayEncoder: 'cpu' | 'amd' | 'nvidia' | 'intel'
+  replayEncoder: 'auto' | 'cpu' | 'amd' | 'nvidia' | 'intel'
   replayCapture: 'windowed' | 'fullscreen' | 'window'
   replayWindowTitle: string
   replayAudio: boolean
@@ -239,6 +239,7 @@ export interface Api {
   onAutoRecord(cb: (action: 'start' | 'stop') => void): () => void
   getAudioDevices(): Promise<string[]>
   getEncoders(): Promise<string[]>
+  audioStarted(ts: number): Promise<{ ok: boolean }>
   getReplayQuota(): Promise<{ usedBytes: number; limitBytes: number; files: number }>
   onReplaysPruned(cb: (names: string[]) => void): () => void
   onRecordingFailed(cb: (info: { reason: string; detail: string }) => void): () => void
