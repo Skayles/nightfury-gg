@@ -33,6 +33,10 @@ const api = {
   getEncoders: () => ipcRenderer.invoke('replay:encoders'),
   audioStarted: (ts: number) => ipcRenderer.invoke('replay:audio-started', ts),
   getReplayQuota: () => ipcRenderer.invoke('replay:quota'),
+  openLogs: () => ipcRenderer.invoke('logs:open'),
+  getLogsSize: () => ipcRenderer.invoke('logs:size'),
+  writeLog: (level: string, scope: string, message: string, detail?: unknown) =>
+    ipcRenderer.invoke('logs:write', level, scope, message, detail),
   onReplaysPruned: (cb: (names: string[]) => void) => {
     const h = (_e: unknown, names: string[]): void => cb(names)
     ipcRenderer.on('replay:pruned', h)

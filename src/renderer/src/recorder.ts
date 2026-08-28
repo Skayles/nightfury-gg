@@ -83,8 +83,8 @@ async function startAudioCapture(): Promise<void> {
         src.connect(g).connect(dest)
         cap.streams.push(pcStream)
       }
-    } catch {
-      /* source unavailable */
+    } catch (e) {
+      void window.api.writeLog('warn', 'recorder', 'PC audio source unavailable', String(e))
     }
   }
   if (wantMic) {
@@ -98,8 +98,8 @@ async function startAudioCapture(): Promise<void> {
       g.gain.value = (settings.replayMicVolume ?? 100) / 100
       src.connect(g).connect(dest)
       cap.streams.push(micStream)
-    } catch {
-      /* mic unavailable */
+    } catch (e) {
+      void window.api.writeLog('warn', 'recorder', 'microphone unavailable', String(e))
     }
   }
 
@@ -110,8 +110,10 @@ async function startAudioCapture(): Promise<void> {
     cap.writes = cap.writes.then(async () => {
       try {
         await window.api.saveAudio(new Uint8Array(await blob.arrayBuffer()))
-      } catch {
-        /* a dropped chunk costs a few seconds of audio, not the recording */
+      } catch (e) {
+        // A dropped chunk costs a few seconds of audio, not the recording —
+        // but it must not vanish without trace.
+        void window.api.writeLog('warn', 'recorder', 'audio chunk not written', String(e))
       }
     })
   }
@@ -158,8 +160,9 @@ export async function startRecording(): Promise<{ ok: boolean; error?: string }>
     if (!r.ok) return { ok: false, error: r.error ?? 'error' }
     try {
       await startAudioCapture()
-    } catch {
-      /* keep the video even if audio fails */
+    } catch (e) {
+      // Keep the video even if audio fails, but say so.
+      void window.api.writeLog('error', 'recorder', 'audio capture failed to start', String(e))
     }
     return { ok: true }
   } finally {

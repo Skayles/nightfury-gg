@@ -28,6 +28,7 @@ export default function Options({
 }): JSX.Element {
   const t = useT()
   const [info, setInfo] = useState<{ count: number; bytes: number } | null>(null)
+  const [logBytes, setLogBytes] = useState<number | null>(null)
   const [pruning, setPruning] = useState(false)
   const [pruneMsg, setPruneMsg] = useState<string | null>(null)
   const [keyInput, setKeyInput] = useState(settings.riotApiKey ?? '')
@@ -72,6 +73,7 @@ export default function Options({
 
   useEffect(() => {
     window.api.getStorageInfo().then(setInfo).catch(() => setInfo(null))
+    window.api.getLogsSize().then(setLogBytes).catch(() => setLogBytes(null))
   }, [])
 
   async function toggleDiscord(v: boolean): Promise<void> {
@@ -235,6 +237,26 @@ export default function Options({
         </div>
 
         <div className="mt-3 text-[11px] text-mute">{t('options.riotExpires')}</div>
+      </div>
+
+      <div className="rounded-lg border border-edge bg-panel p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="pr-4">
+            <div className="text-sm font-medium text-slate-200">{t('options.logs')}</div>
+            <div className="mt-0.5 text-xs text-mute">{t('options.logsHint')}</div>
+            {logBytes != null && logBytes > 0 && (
+              <div className="mt-1 text-[11px] text-mute">
+                {t('options.logsSize', { size: fmtBytes(logBytes) })}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => window.api.openLogs()}
+            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm font-medium text-slate-200 hover:border-teal hover:text-teal"
+          >
+            {t('options.logsOpen')}
+          </button>
+        </div>
       </div>
 
       <div className="rounded-lg border border-edge bg-panel p-5">

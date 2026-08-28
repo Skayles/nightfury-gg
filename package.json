@@ -1,6 +1,6 @@
 {
   "name": "nightfury",
-  "version": "2.0.6",
+  "version": "2.0.7",
   "description": "Keyless League of Legends companion: op.gg-style history, live lobby scouting, and Google Sheet export — no Riot API key, no Google login, no native build tools.",
   "main": "./out/main/index.js",
   "author": "you",
@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
-    "@electron-toolkit/utils": "^4.0.0",
     "@fontsource-variable/inter": "^5.1.0",
     "@fontsource/rajdhani": "^5.1.0",
     "@xhayper/discord-rpc": "^1.2.0",

@@ -1,230 +1,32 @@
 import { ElectronAPI } from '@electron-toolkit/preload'
+import type { Settings } from '../shared/types'
 
-export interface MatchDetails {
-  champLevel: number
-  laneCs: number
-  jungleCs: number
-  totalDamage: number
-  damageTaken: number
-  objectiveDamage: number
-  turretKills: number
-  wardsPlaced: number
-  wardsKilled: number
-  pinks: number
-  doubleKills: number
-  tripleKills: number
-  quadraKills: number
-  pentaKills: number
-  largestKillingSpree: number
-  largestMultiKill: number
-  items: number[]
-  spell1: number
-  spell2: number
-  keystone: number
-  primaryStyle: number
-  subStyle: number
-  runes: number[]
-  shards: number[]
-}
+/**
+ * The IPC contract. Every data shape it moves is declared once, in
+ * src/shared/types.ts, and re-exported here so the renderer can keep importing
+ * everything it needs from a single place.
+ */
+export type {
+  MatchDetails,
+  ScorePlayer,
+  MatchRecord,
+  DdragonInfo,
+  SummonerProfile,
+  TimelineEvent,
+  LivePlayer,
+  LiveGame,
+  ScoutResult,
+  ScoutDiag,
+  MatchFilter,
+  ReplayFile,
+  ReplayStatus,
+  Friend,
+  LcuStatus,
+  ExportStatus
+} from '../shared/types'
 
-export interface ScorePlayer {
-  pid: number
-  teamId: number
-  name: string
-  tagLine: string
-  championId: number
-  kills: number
-  deaths: number
-  assists: number
-  cs: number
-  gold: number
-  damage: number
-  vision: number
-  items: number[]
-}
-
-export interface MatchRecord {
-  gameId: number
-  participantId: number
-  playedAt: number
-  queueId: number
-  queueName: string
-  champion: string
-  championId: number
-  win: boolean
-  kills: number
-  deaths: number
-  assists: number
-  cs: number
-  csPerMin: number
-  kpPct: number
-  vision: number
-  damage: number
-  gold: number
-  durationS: number
-  details?: MatchDetails
-  players?: ScorePlayer[]
-}
-
-export interface DdragonInfo {
-  version: string
-  champions: Record<number, string>
-  champNames: Record<number, string>
-  items: Record<number, { name: string; description: string }>
-  spells: Record<number, string>
-  spellInfo: Record<number, { name: string; desc: string }>
-  runes: Record<number, { icon: string; name: string; desc: string }>
-  runeStyles: Record<number, { icon: string; name: string }>
-}
-
-export interface SummonerProfile {
-  gameName: string
-  tagLine: string
-  profileIconId: number
-  summonerLevel: number
-  rankedTier: string | null
-  rankedDivision: string | null
-  rankedLp: number | null
-  rankedWins: number | null
-  rankedLosses: number | null
-  flexTier: string | null
-  flexDivision: string | null
-  flexLp: number | null
-  flexWins: number | null
-  flexLosses: number | null
-  region: string
-}
-
-export interface TimelineEvent {
-  t: number
-  kind: 'kill' | 'monster' | 'building'
-  killerId: number
-  victimId?: number
-  assists?: number[]
-  monster?: string
-  subType?: string
-  building?: string
-  lane?: string
-  teamId?: number
-  firstBlood?: boolean
-}
-
-export interface LivePlayer {
-  name: string
-  tagLine: string
-  championImage: string
-  championName: string
-  skinId: number
-  puuid: string
-  rankTier?: string | null
-  rankDivision?: string | null
-  rankLp?: number | null
-  winrate?: number | null
-  games?: number | null
-  champGames?: number | null
-  champWinrate?: number | null
-}
-export interface LiveGame {
-  teamOne: LivePlayer[]
-  teamTwo: LivePlayer[]
-  queueId: number
-}
-
-export interface ScoutResult {
-  puuid: string
-  rankTier: string | null
-  rankDivision: string | null
-  rankLp: number | null
-  winrate: number | null
-  games: number | null
-  champGames: number | null
-  champWinrate: number | null
-  level?: number | null
-  smurf?: boolean
-  premadeGroup?: number
-}
-export interface ScoutDiag {
-  ok: boolean
-  tokenFound: boolean
-  baseFound: boolean
-  historyOk: boolean
-  base: string
-  region: string
-  error: string
-  sample: string
-}
-
-export interface MatchFilter {
-  queueId: number | null
-  champion: string | null
-  result: 'win' | 'loss' | null
-  sinceDays: number | null
-}
-
-export interface AppSettings {
-  scriptUrl: string | null
-  exportToken: string | null
-  autoExportOnGameEnd: boolean
-  onlyNewOnExport: boolean
-  exportFilter: MatchFilter
-  scoutingEnabled: boolean
-  language: 'fr' | 'en'
-  discordEnabled: boolean
-  riotApiKey: string
-  closeToTray: boolean
-  replayFolder: string
-  replayResolution: 720 | 1080 | 1440
-  replayFps: 30 | 60
-  replayEncoder: 'auto' | 'cpu' | 'amd' | 'nvidia' | 'intel'
-  replayCapture: 'windowed' | 'fullscreen' | 'window'
-  replayWindowTitle: string
-  replayAudio: boolean
-  replayAudioDevice: string
-  replayMic: boolean
-  replayMicDevice: string
-  replayAudioVolume: number
-  replayMicVolume: number
-  replayAudioOffsetMs: number
-  replayMaxGb: number
-  replayAuto: boolean
-}
-
-export interface ReplayFile {
-  name: string
-  path: string
-  size: number
-  mtime: number
-}
-
-export interface ReplayStatus {
-  installed: boolean
-  folder: string
-  replays: ReplayFile[]
-}
-
-export type LcuStatus =
-  | { state: 'disconnected' }
-  | { state: 'connecting' }
-  | { state: 'connected'; summoner: string }
-  | { state: 'in-game' }
-  | { state: 'error'; message: string }
-
-export type ExportStatus =
-  | { state: 'syncing' }
-  | { state: 'ok'; added: number }
-  | { state: 'error'; message: string }
-
-export interface Friend {
-  id: string
-  name: string
-  tagLine: string
-  iconId: number
-  availability: string
-  game: string
-  status: string
-  championId: number
-  note: string
-}
+// The renderer knows this shape as AppSettings; main calls it Settings.
+export type AppSettings = Settings
 
 export interface Api {
   getFriends(): Promise<Friend[]>
@@ -238,9 +40,12 @@ export interface Api {
   getRecordingInfo(): Promise<{ recording: boolean; file: string; since: number }>
   onAutoRecord(cb: (action: 'start' | 'stop') => void): () => void
   getAudioDevices(): Promise<string[]>
-  getEncoders(): Promise<string[]>
+  getEncoders(): Promise<{ available: string[]; auto: string }>
   audioStarted(ts: number): Promise<{ ok: boolean }>
   getReplayQuota(): Promise<{ usedBytes: number; limitBytes: number; files: number }>
+  openLogs(): Promise<void>
+  getLogsSize(): Promise<number>
+  writeLog(level: string, scope: string, message: string, detail?: unknown): Promise<{ ok: boolean }>
   onReplaysPruned(cb: (names: string[]) => void): () => void
   onRecordingFailed(cb: (info: { reason: string; detail: string }) => void): () => void
   getWindows(): Promise<string[]>

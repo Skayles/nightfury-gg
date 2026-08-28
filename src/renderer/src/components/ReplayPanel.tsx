@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import type { ReplayStatus, ReplayFile } from '../../../preload/index.d'
 import { useT } from '../i18n'
-import { agoShort } from '../lib'
 import LevelMeter from './LevelMeter'
 import * as recorder from '../recorder'
+import EngineCard from './replay/EngineCard'
+import ReplayList from './replay/ReplayList'
+import FolderCard from './replay/FolderCard'
+import AudioSettings from './replay/AudioSettings'
 
 const QUOTA_PRESETS = [10, 25, 50]
 
@@ -66,6 +69,7 @@ export default function ReplayPanel(): JSX.Element {
   const [recSince, setRecSince] = useState(0)
   const [elapsed, setElapsed] = useState(0)
   const [encoders, setEncoders] = useState<string[]>([])
+  const [autoEncoder, setAutoEncoder] = useState<string>('')
   const [maxGb, setMaxGb] = useState(0)
   const [customGb, setCustomGb] = useState(false)
   const [quota, setQuota] = useState<{
@@ -206,7 +210,13 @@ export default function ReplayPanel(): JSX.Element {
   useEffect(() => {
     reload()
     loadAudioDevicesSilent()
-    window.api.getEncoders().then(setEncoders).catch(() => setEncoders([]))
+    window.api
+      .getEncoders()
+      .then((e) => {
+        setEncoders(e.available)
+        setAutoEncoder(e.auto)
+      })
+      .catch(() => setEncoders([]))
     window.api.getRecordingInfo().then((i) => {
       setRecording(i.recording)
       setRecSince(i.since)
@@ -281,9 +291,6 @@ export default function ReplayPanel(): JSX.Element {
     if (f) await reload()
   }
 
-  const pct =
-    progress && progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : null
-
   // ffmpeg (dshow) can only capture RECORDING devices, so "game audio" must use
   // a loopback capture device (Stereo Mix, virtual cable) — not a playback one.
   const LOOPBACK_KEYS = [
@@ -356,175 +363,30 @@ export default function ReplayPanel(): JSX.Element {
         </div>
       )}
 
-      {/* Engine card */}
-      <div className="card mb-4 p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-slate-200">{t('replay.engine')}</div>
-            <div className="mt-0.5 text-xs text-mute">
-              {status?.installed ? t('replay.engineReady') : t('replay.engineHint')}
-            </div>
-          </div>
-          {status?.installed ? (
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="rounded-full bg-win/15 px-3 py-1 text-xs font-medium text-win">
-                {t('replay.installed')}
-              </span>
-              <button
-                onClick={async () => {
-                  await window.api.removeEngine()
-                  await reload()
-                }}
-                className="rounded-lg border border-edge px-3 py-1.5 text-xs font-medium text-mute hover:border-loss hover:text-loss"
-              >
-                {t('replay.removeEngine')}
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={download}
-              disabled={downloading}
-              className="shrink-0 rounded-lg bg-teal px-4 py-2 text-sm font-semibold text-night hover:bg-teal/90 disabled:opacity-60"
-            >
-              {downloading ? t('replay.downloading') : t('replay.downloadEngine')}
-            </button>
-          )}
-        </div>
+      <EngineCard
+        installed={!!status?.installed}
+        downloading={downloading}
+        progress={progress}
+        error={error}
+        onDownload={download}
+        onRemove={async () => {
+          await window.api.removeEngine()
+          await reload()
+        }}
+      />
 
-        {downloading && (
-          <div className="mt-4">
-            <div className="h-2 overflow-hidden rounded-full bg-panel2">
-              <div
-                className="h-full bg-teal transition-all"
-                style={{ width: pct != null ? `${pct}%` : '25%' }}
-              />
-            </div>
-            <div className="mt-1 text-[11px] text-mute">
-              {pct != null ? `${pct}%` : t('replay.downloading')}
-            </div>
-          </div>
-        )}
-        {error && <div className="mt-3 text-xs text-loss">{error}</div>}
-      </div>
-
-      {/* Folder card */}
-      <div className="card mb-4 p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-slate-200">{t('replay.folder')}</div>
-            <div className="mt-0.5 truncate text-xs text-mute" title={folder}>
-              {folder || '—'}
-            </div>
-          </div>
-          <button
-            onClick={pickFolder}
-            className="shrink-0 rounded-lg border border-edge px-3 py-1.5 text-sm font-medium text-slate-200 hover:border-teal hover:text-teal"
-          >
-            {t('replay.change')}
-          </button>
-        </div>
-
-        <div className="mt-4 border-t border-edge/60 pt-4">
-          <div className="section-label mb-1.5">{t('replay.limit')}</div>
-          <div className="segmented">
-            {QUOTA_PRESETS.map((g) => (
-              <button
-                key={g}
-                onClick={() => {
-                  setCustomGb(false)
-                  setQuality({ replayMaxGb: g })
-                }}
-                className={
-                  'segmented-item ' +
-                  (!customGb && maxGb === g ? 'segmented-item-active' : 'segmented-item-idle')
-                }
-              >
-                {g} Go
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                setCustomGb(true)
-                if (QUOTA_PRESETS.includes(maxGb) || maxGb === 0) setQuality({ replayMaxGb: 100 })
-              }}
-              className={
-                'segmented-item ' + (customGb ? 'segmented-item-active' : 'segmented-item-idle')
-              }
-            >
-              {t('replay.limitCustom')}
-            </button>
-            <button
-              onClick={() => {
-                setCustomGb(false)
-                setQuality({ replayMaxGb: 0 })
-              }}
-              className={
-                'segmented-item ' +
-                (maxGb === 0 && !customGb ? 'segmented-item-active' : 'segmented-item-idle')
-              }
-            >
-              {t('replay.limitNone')}
-            </button>
-          </div>
-
-          {customGb && (
-            <div className="mt-2 flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={2000}
-                step={1}
-                value={maxGb || ''}
-                onChange={(e) => {
-                  const v = Math.max(1, Math.min(2000, Math.round(Number(e.target.value) || 0)))
-                  setQualityDeferred({ replayMaxGb: v })
-                }}
-                className="w-24 rounded-md border border-edge bg-panel2 px-2 py-1 text-right text-xs text-slate-200"
-              />
-              <span className="text-xs text-mute">Go</span>
-            </div>
-          )}
-
-          {quota && (
-            <div className="mt-2.5">
-              {quota.limitBytes > 0 ? (
-                <>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-panel2">
-                    <div
-                      className={
-                        'h-full transition-all ' +
-                        (quota.usedBytes / quota.limitBytes > 0.9 ? 'bg-gold' : 'bg-teal')
-                      }
-                      style={{ width: `${Math.min(100, Math.round((quota.usedBytes / quota.limitBytes) * 100))}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 text-[11px] text-mute">
-                    {t('replay.limitUsed', {
-                      used: fmtSize(quota.usedBytes),
-                      total: fmtSize(quota.limitBytes),
-                      n: quota.files
-                    })}
-                  </div>
-                </>
-              ) : (
-                <div className="text-[11px] text-mute">
-                  {t('replay.limitUsedNone', { used: fmtSize(quota.usedBytes), n: quota.files })}
-                </div>
-              )}
-              <div className="mt-1 text-[11px] text-mute">{t('replay.limitHint')}</div>
-            </div>
-          )}
-
-          {pruned.length > 0 && (
-            <div className="mt-2 rounded-md border border-edge bg-panel2/40 px-3 py-2 text-[11px] text-mute">
-              {t('replay.limitPruned', { n: pruned.length })}
-              <button onClick={() => setPruned([])} className="ml-2 text-teal hover:underline">
-                {t('replay.limitPrunedOk')}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+      <FolderCard
+        folder={folder}
+        maxGb={maxGb}
+        customGb={customGb}
+        quota={quota}
+        pruned={pruned}
+        onPickFolder={pickFolder}
+        onSet={setQuality}
+        onSetDeferred={setQualityDeferred}
+        onCustomChange={setCustomGb}
+        onDismissPruned={() => setPruned([])}
+      />
 
       {/* Quality card */}
       <div className="card mb-4 p-5">
@@ -587,6 +449,11 @@ export default function ReplayPanel(): JSX.Element {
               )
             })}
           </div>
+          {encoder === 'auto' && autoEncoder && (
+            <div className="mt-1 text-[11px] text-mute">
+              {t('replay.encAutoPicked', { name: t('replay.enc_' + autoEncoder) })}
+            </div>
+          )}
           {encoders.length > 0 && encoders.length < 4 && (
             <div className="mt-1 text-[11px] text-mute">{t('replay.encProbed')}</div>
           )}
@@ -635,212 +502,26 @@ export default function ReplayPanel(): JSX.Element {
           <div className="mt-1 text-[11px] text-mute">{t('replay.captureHint')}</div>
         </div>
 
-        <div className="mt-4">
-          <div className="flex items-center justify-between">
-            <div className="section-label">{t('replay.audio')}</div>
-            <button
-              onClick={() => setQuality({ replayAudio: !audio })}
-              className={
-                'rounded-md px-3 py-1 text-xs font-medium ' +
-                (audio ? 'bg-teal/20 text-teal' : 'bg-panel2 text-mute')
-              }
-            >
-              {audio ? t('replay.on') : t('replay.off')}
-            </button>
-          </div>
-          {audio && (
-            <div className="mt-2">
-              <div className="flex gap-2">
-                <select
-                  value={audioDevice}
-                  onChange={(e) => setQuality({ replayAudioDevice: e.target.value })}
-                  className="min-w-0 flex-1 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-slate-200"
-                >
-                  <option value="">{t('replay.audioDefault')}</option>
-                  {loopbackInputs.map((d) => (
-                    <option key={'a-' + d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={loadAudioDevices}
-                  className="shrink-0 rounded-md border border-edge px-2.5 py-1.5 text-xs text-slate-200 hover:border-teal hover:text-teal"
-                >
-                  {t('replay.detect')}
-                </button>
-              </div>
-              <div className="mt-3 flex items-center gap-3">
-                <span className="w-16 shrink-0 text-[11px] text-mute">{t('replay.volume')}</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={150}
-                  step={5}
-                  value={audioVolume}
-                  onChange={(e) => setQualityDeferred({ replayAudioVolume: Number(e.target.value) })}
-                  className="flex-1 accent-teal"
-                />
-                <span className="w-10 shrink-0 text-right text-[11px] text-slate-200">
-                  {audioVolume}%
-                </span>
-              </div>
-              <LevelMeter loopback={!audioDevice} deviceLabel={audioDevice} active={audio && !recording} />
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4">
-          <div className="flex items-center justify-between">
-            <div className="section-label">{t('replay.mic')}</div>
-            <button
-              onClick={() => setQuality({ replayMic: !mic })}
-              className={
-                'rounded-md px-3 py-1 text-xs font-medium ' +
-                (mic ? 'bg-teal/20 text-teal' : 'bg-panel2 text-mute')
-              }
-            >
-              {mic ? t('replay.on') : t('replay.off')}
-            </button>
-          </div>
-          {mic && (
-            <div className="mt-2">
-              <div className="flex gap-2">
-                <select
-                  value={micDevice}
-                  onChange={(e) => setQuality({ replayMicDevice: e.target.value })}
-                  className="min-w-0 flex-1 rounded-md border border-edge bg-panel2 px-2 py-1.5 text-xs text-slate-200"
-                >
-                  <option value="">{t('replay.audioAuto')}</option>
-                  {micOptions.map((d) => (
-                    <option key={'m-' + d} value={d}>
-                      {d}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={loadAudioDevices}
-                  className="shrink-0 rounded-md border border-edge px-2.5 py-1.5 text-xs text-slate-200 hover:border-teal hover:text-teal"
-                >
-                  {t('replay.detect')}
-                </button>
-              </div>
-              <div className="mt-3 flex items-center gap-3">
-                <span className="w-16 shrink-0 text-[11px] text-mute">{t('replay.volume')}</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={150}
-                  step={5}
-                  value={micVolume}
-                  onChange={(e) => setQualityDeferred({ replayMicVolume: Number(e.target.value) })}
-                  className="flex-1 accent-teal"
-                />
-                <span className="w-10 shrink-0 text-right text-[11px] text-slate-200">
-                  {micVolume}%
-                </span>
-              </div>
-              <LevelMeter deviceLabel={micMeterLabel} active={mic && !recording} />
-            </div>
-          )}
-        </div>
-
-        {(audio || mic) && (
-          <div className="mt-4">
-            <div className="section-label mb-1.5">{t('replay.sync')}</div>
-            <div className="mb-2 text-[11px] text-mute">{t('replay.syncAuto')}</div>
-            <div className="flex items-center gap-3">
-              <span className="w-16 shrink-0 text-[11px] text-mute">{t('replay.offset')}</span>
-              <input
-                type="range"
-                min={-200}
-                max={200}
-                step={1}
-                value={audioOffset}
-                onChange={(e) => setQualityDeferred({ replayAudioOffsetMs: Number(e.target.value) })}
-                className="flex-1 accent-teal"
-              />
-              <input
-                type="number"
-                min={-200}
-                max={200}
-                step={1}
-                value={audioOffset}
-                onChange={(e) => {
-                  const v = Math.max(-200, Math.min(200, Math.round(Number(e.target.value) || 0)))
-                  setQualityDeferred({ replayAudioOffsetMs: v })
-                }}
-                className="w-16 shrink-0 rounded-md border border-edge bg-panel2 px-1.5 py-1 text-right text-[11px] text-slate-200"
-              />
-              <span className="shrink-0 text-[11px] text-mute">ms</span>
-            </div>
-            <div className="mt-1 text-[11px] text-mute">{t('replay.syncHint')}</div>
-            {audioOffset !== 0 && (
-              <button
-                onClick={() => setQualityDeferred({ replayAudioOffsetMs: 0 })}
-                className="mt-1.5 text-[11px] text-teal hover:underline"
-              >
-                {t('replay.syncReset')}
-              </button>
-            )}
-          </div>
-        )}
+        <AudioSettings
+          audio={audio}
+          audioDevice={audioDevice}
+          loopbackInputs={loopbackInputs}
+          mic={mic}
+          micDevice={micDevice}
+          micOptions={micOptions}
+          micMeterLabel={micMeterLabel}
+          audioVolume={audioVolume}
+          micVolume={micVolume}
+          audioOffset={audioOffset}
+          recording={recording}
+          onSet={setQuality}
+          onSetDeferred={setQualityDeferred}
+          onDetect={loadAudioDevices}
+        />
 
       </div>
 
-      {/* Replay list */}
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="section-label">{t('replay.recordings')}</h2>
-        <button onClick={reload} className="text-xs text-mute hover:text-slate-200">
-          {t('profile.refresh')}
-        </button>
-      </div>
-
-      {replays.length === 0 ? (
-        <div className="card p-8 text-center text-sm text-mute">{t('replay.empty')}</div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {replays.map((r) => (
-            <div
-              key={r.path}
-              className="card flex items-center gap-3 p-3"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-panel2 text-teal">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
-                  <path d="M10 8v8l6-4-6-4z" fill="currentColor" stroke="none" />
-                </svg>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm text-slate-100">{r.name}</div>
-                <div className="text-[11px] text-mute">
-                  {fmtSize(r.size)} · {agoShort(r.mtime, t)}
-                </div>
-              </div>
-              <button
-                onClick={() => window.api.openReplay(r.path)}
-                className="shrink-0 rounded-md border border-edge px-2.5 py-1 text-xs text-slate-200 hover:border-teal hover:text-teal"
-              >
-                {t('replay.play')}
-              </button>
-              <button
-                onClick={() => window.api.revealReplay(r.path)}
-                className="shrink-0 rounded-md border border-edge px-2.5 py-1 text-xs text-slate-200 hover:border-teal hover:text-teal"
-              >
-                {t('replay.reveal')}
-              </button>
-              <button
-                onClick={async () => {
-                  await window.api.deleteReplay(r.path)
-                  reload()
-                }}
-                className="shrink-0 rounded-md border border-edge px-2.5 py-1 text-xs text-mute hover:border-loss hover:text-loss"
-              >
-                {t('replay.delete')}
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
+      <ReplayList replays={replays} onRefresh={reload} />
     </div>
   )
 }

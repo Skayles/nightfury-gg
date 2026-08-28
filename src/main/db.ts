@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs'
 import type { MatchRecord } from './stats'
+import { logError, logWarn } from './log'
 import { queueName } from './stats'
 
 /**
@@ -36,7 +37,7 @@ function save(): void {
       'utf-8'
     )
   } catch (e) {
-    console.error('[db] write failed', e)
+    logError('db', 'could not save match history', e)
   }
 }
 
@@ -52,7 +53,7 @@ export function initDb(): void {
       for (const g of arr) games.set(g.gameId, g)
     }
   } catch (e) {
-    console.error('[db] read failed, starting fresh', e)
+    logError('db', 'match history unreadable, starting fresh', e)
     games = new Map()
   }
 }

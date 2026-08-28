@@ -1,16 +1,5 @@
-import type { MatchRecord, MatchFilter } from '../../preload/index.d'
-
-export function applyFilter(matches: MatchRecord[], f: MatchFilter): MatchRecord[] {
-  const cutoff = f.sinceDays != null ? Date.now() - f.sinceDays * 86400000 : null
-  return matches.filter((m) => {
-    if (f.queueId != null && m.queueId !== f.queueId) return false
-    if (f.champion && m.champion !== f.champion) return false
-    if (f.result === 'win' && !m.win) return false
-    if (f.result === 'loss' && m.win) return false
-    if (cutoff != null && m.playedAt < cutoff) return false
-    return true
-  })
-}
+import type { MatchRecord } from '../../preload/index.d'
+export { applyFilter } from '../../shared/filter'
 
 export interface Agg {
   games: number

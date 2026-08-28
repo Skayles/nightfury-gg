@@ -10,6 +10,7 @@
 import { app } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { logWarn, logError, logInfo } from './log'
 
 const CACHE_SHAPE = 2 // bump when the cached data structure changes
 
@@ -68,7 +69,7 @@ async function writeCache(lang: string): Promise<void> {
       })
     )
   } catch (e) {
-    console.error('[ddragon] cache write failed', e)
+    logWarn('ddragon', 'cache write failed', e)
   }
 }
 
@@ -108,7 +109,10 @@ export async function loadDdragon(lang: string = 'fr_FR'): Promise<void> {
     }
 
     version = latest || cached?.version || version
-    if (!version) return // no network and no cache — nothing we can do
+    if (!version) {
+      logError('ddragon', 'no patch version and no disk cache — offline on first run?')
+      return
+    }
 
     const champs: any = await fetch(
       `https://ddragon.leagueoflegends.com/cdn/${version}/data/${lang}/champion.json`
@@ -161,7 +165,7 @@ export async function loadDdragon(lang: string = 'fr_FR'): Promise<void> {
       spells = sp
       spellInfo = spi
     } catch (e) {
-      console.error('[ddragon] summoner spells load failed', e)
+      logWarn('ddragon', 'summoner spells load failed', e)
     }
 
     // Runes (Runes Reforged): perk id -> icon, style id -> icon.
@@ -187,13 +191,13 @@ export async function loadDdragon(lang: string = 'fr_FR'): Promise<void> {
       runes = rn
       runeStyles = st
     } catch (e) {
-      console.error('[ddragon] runes load failed', e)
+      logWarn('ddragon', 'runes load failed', e)
     }
 
     // Persist the fully-loaded data so the next launch (same patch) is instant.
     await writeCache(lang)
   } catch (e) {
-    console.error('[ddragon] load failed', e)
+    logError('ddragon', 'load failed — champion names and icons will be missing', e)
   }
 }
 

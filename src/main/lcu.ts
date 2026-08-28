@@ -17,6 +17,13 @@ import {
   setQueueNames
 } from './stats'
 import { championImageFromLive, ddragonInfo } from './ddragon'
+import { logInfo, logWarn, logError, logWarnOnce } from './log'
+import { asNumOrNull, asStr, shapeOf } from '../shared/parse'
+import type { SummonerProfile, LcuStatus } from '../shared/types'
+// Declared once in src/shared/types.ts; re-exported so existing
+// imports from this module keep working.
+export type { SummonerProfile, LcuStatus } from '../shared/types'
+
 
 type SgpCtx = {
   sessionToken: string
@@ -30,30 +37,23 @@ type MatchesListener = (records: MatchRecord[], reason: 'backfill' | 'game-end')
 type SkipIdsProvider = () => Set<number>
 type ProfileListener = (profile: SummonerProfile) => void
 
-export interface SummonerProfile {
-  gameName: string
-  tagLine: string
-  profileIconId: number
-  summonerLevel: number
-  rankedTier: string | null
-  rankedDivision: string | null
-  rankedLp: number | null
-  rankedWins: number | null
-  rankedLosses: number | null
-  flexTier: string | null
-  flexDivision: string | null
-  flexLp: number | null
-  flexWins: number | null
-  flexLosses: number | null
-  region: string
-}
-
-export type LcuStatus =
-  | { state: 'disconnected' }
-  | { state: 'connecting' }
-  | { state: 'connected'; summoner: string }
-  | { state: 'in-game' }
-  | { state: 'error'; message: string }
+/**
+ * Wait for the League client, backing off as it stays absent.
+ *
+ * league-connect finds the client by asking Windows for a process list, which
+ * on Windows means spawning PowerShell for a WMI query — about 240 ms of work
+ * each time. Polling that every 2.5 s forever, which is what awaitConnection
+ * does, costs nearly six minutes of PowerShell per hour for someone who simply
+ * leaves the app in the tray; it also makes a background app look like it is
+ * repeatedly enumerating processes, which is not a good look for an unsigned
+ * executable.
+ *
+ * Starting fast keeps detection immediate when the client is already up or
+ * starting, and the backoff makes an idle day nearly free. The client takes far
+ * longer than 20 s to reach a playable state, so nothing is missed.
+ */
+const CLIENT_POLL_START_MS = 2500
+const CLIENT_POLL_MAX_MS = 20000
 
 export class LcuService {
   private creds: Credentials | null = null
@@ -85,7 +85,7 @@ export class LcuService {
   async connect(): Promise<void> {
     this.statusCb({ state: 'connecting' })
     try {
-      this.creds = await authenticate({ awaitConnection: true, pollInterval: 2500 })
+      this.creds = await this.waitForClient()
       const summoner = await this.request<any>(
         'GET',
         '/lol-summoner/v1/current-summoner'
@@ -93,6 +93,7 @@ export class LcuService {
       this.puuid = summoner?.puuid ?? null
       this.summonerName = summoner?.gameName ?? summoner?.displayName ?? 'Invocateur'
       this.statusCb({ state: 'connected', summoner: this.summonerName })
+      logInfo('lcu', 'connected as ' + this.summonerName)
 
       // Ranked (Solo/Duo) for the profile header — best effort.
       let tier: string | null = null
@@ -111,28 +112,28 @@ export class LcuService {
         if (solo && solo.tier) {
           tier = solo.tier
           division = solo.division ?? null
-          lp = typeof solo.leaguePoints === 'number' ? solo.leaguePoints : null
-          wins = typeof solo.wins === 'number' ? solo.wins : null
-          losses = typeof solo.losses === 'number' ? solo.losses : null
+          lp = asNumOrNull(solo.leaguePoints)
+          wins = asNumOrNull(solo.wins)
+          losses = asNumOrNull(solo.losses)
         }
         const flex = rs?.queueMap?.RANKED_FLEX_SR
         if (flex && flex.tier) {
           flexTier = flex.tier
           flexDivision = flex.division ?? null
-          flexLp = typeof flex.leaguePoints === 'number' ? flex.leaguePoints : null
-          flexWins = typeof flex.wins === 'number' ? flex.wins : null
-          flexLosses = typeof flex.losses === 'number' ? flex.losses : null
+          flexLp = asNumOrNull(flex.leaguePoints)
+          flexWins = asNumOrNull(flex.wins)
+          flexLosses = asNumOrNull(flex.losses)
         }
-      } catch {
-        /* rank optional */
+      } catch (e) {
+        logWarn('lcu', 'ranked stats unavailable', e)
       }
 
       let region = ''
       try {
         const rl = await this.request<any>('GET', '/riotclient/region-locale')
         region = String(rl?.region || '').toLowerCase()
-      } catch {
-        /* region optional */
+      } catch (e) {
+        logWarn('lcu', 'region lookup failed, defaulting to euw', e)
       }
 
       // Queue names straight from the client — covers event queues (Mayhem, etc.)
@@ -148,8 +149,8 @@ export class LcuService {
           setQueueNames(m)
           this.queuesCb()
         }
-      } catch {
-        /* keep static fallback names */
+      } catch (e) {
+        logWarn('lcu', 'queue list unavailable, using static names', e)
       }
 
       this.profileCb({
@@ -187,9 +188,23 @@ export class LcuService {
         /* ignore */
       }
     } catch (e: any) {
+      logError('lcu', 'connection failed, retrying in 8s', e)
       this.statusCb({ state: 'error', message: e?.message ?? String(e) })
       // Retry after a delay — the client may just not be open yet.
       setTimeout(() => this.connect(), 8000)
+    }
+  }
+
+  /** Resolve once the client answers, polling less and less while it does not. */
+  private async waitForClient(): Promise<Credentials> {
+    let wait = CLIENT_POLL_START_MS
+    for (;;) {
+      try {
+        return await authenticate({ awaitConnection: false })
+      } catch {
+        await new Promise((r) => setTimeout(r, wait))
+        wait = Math.min(Math.round(wait * 1.5), CLIENT_POLL_MAX_MS)
+      }
     }
   }
 
@@ -256,8 +271,8 @@ export class LcuService {
       try {
         const detail = await this.request<any>('GET', `/lol-match-history/v1/games/${g.gameId}`)
         parsed = parseGame(detail, this.puuid as string)
-      } catch {
-        /* detail unavailable → fall back to the summary object */
+      } catch (e) {
+        logWarn('lcu', 'match detail unavailable for game ' + g.gameId + ', using summary', e)
       }
       return parsed ?? parseGame(g, this.puuid as string)
     })
@@ -297,7 +312,11 @@ export class LcuService {
    *  in-game Live Client Data API merged with the LCU gameflow (for puuids). */
   async fetchLiveGame(): Promise<LiveGame | null> {
     const players = await liveClientGet('/liveclientdata/playerlist')
-    if (!Array.isArray(players) || !players.length) return null
+    if (!Array.isArray(players) || !players.length) {
+      // Normal before the loading screen finishes; only worth noting once.
+      logWarnOnce('live:no-players', 'lcu', 'the in-game API returned no player list', shapeOf(players))
+      return null
+    }
 
     // Gameflow gives puuids + championIds + queue (names are empty there).
     let gd: any = null
@@ -327,7 +346,7 @@ export class LcuService {
     const map = (side: 'ORDER' | 'CHAOS') => (p: any): any => {
       const championImage = championImageFromLive(p.championName, p.rawChampionName)
       return {
-        name: p.riotIdGameName || p.summonerName || p.riotId || '',
+        name: asStr(p.riotIdGameName) || asStr(p.summonerName) || asStr(p.riotId),
         tagLine: p.riotIdTagLine || (p.riotId ? String(p.riotId).split('#')[1] : '') || '',
         championImage,
         championName: p.championName || '',
@@ -408,6 +427,7 @@ export class LcuService {
 
     if ((!sessionToken && !rsoToken) || !base) {
       diag.error = !sessionToken && !rsoToken ? 'token introuvable' : 'serveur SGP introuvable'
+      logWarn('scout', 'cannot build SGP context: ' + diag.error, 'region=' + region + ' base=' + base)
       this.sgpCtx = null
       return { ctx: null, diag }
     }
@@ -458,12 +478,7 @@ export class LcuService {
         return {
           rankTier: solo.tier,
           rankDivision: solo.rank ?? solo.division ?? null,
-          rankLp:
-            typeof solo.leaguePoints === 'number'
-              ? solo.leaguePoints
-              : typeof solo.lp === 'number'
-                ? solo.lp
-                : null
+          rankLp: asNumOrNull(solo.leaguePoints) ?? asNumOrNull(solo.lp)
         }
       } catch {
         return {}
@@ -593,7 +608,7 @@ export class LcuService {
           ? 'historique reçu mais non lu (format à ajuster)'
           : 'historique : aucune réponse du serveur'
       }
-      console.log('[scout] match-history probe:', diag.sample)
+      logWarn('scout', 'match history not readable: ' + diag.error, diag.sample)
     }
     return { results, diag }
   }
@@ -605,7 +620,8 @@ export class LcuService {
     let list: any
     try {
       list = await this.request<any>('GET', '/lol-chat/v1/friends')
-    } catch {
+    } catch (e) {
+      logWarn('lcu', 'friends list unavailable', e)
       return []
     }
     if (!Array.isArray(list)) return []
@@ -653,7 +669,8 @@ export class LcuService {
     let data: any
     try {
       data = await this.request<any>('GET', `/lol-match-history/v1/game-timelines/${gameId}`)
-    } catch {
+    } catch (e) {
+      logWarn('lcu', 'timeline unavailable for game ' + gameId, e)
       return []
     }
     const frames: any[] = data?.frames ?? data?.info?.frames ?? []

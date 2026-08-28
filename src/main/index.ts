@@ -13,7 +13,6 @@ import {
 } from 'electron'
 import { join } from 'path'
 import { writeFileSync } from 'fs'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import {
   initDb,
   upsertMatches,
@@ -49,6 +48,7 @@ import {
   listAudioDevices,
   listWindows,
   listEncoders,
+  resolveEncoder,
   resetEncoderCache,
   setAudioStart,
   enforceQuota,
@@ -68,6 +68,7 @@ import { exportToSheet } from './export'
 import { applyFilter, toCsv, MatchRecord } from './stats'
 import { loadDdragon, ddragonInfo, championName, championIdFromImage } from './ddragon'
 import { initDiscord, setPresence, stopDiscord } from './discord'
+import { initLogging, logInfo, logWarn, logError, openLogsFolder, logsSize } from './log'
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
@@ -95,13 +96,17 @@ async function checkForUpdate(): Promise<{ updateAvailable: boolean; latest: str
     const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
       headers: { 'User-Agent': 'Nightfury.gg', Accept: 'application/vnd.github+json' }
     })
-    if (!res.ok) return fallback
+    if (!res.ok) {
+      logWarn('update', 'GitHub releases API refused', 'HTTP ' + res.status)
+      return fallback
+    }
     const data: any = await res.json()
     const latest = String(data.tag_name || '')
     const url = String(data.html_url || `https://github.com/${GITHUB_REPO}/releases`)
     if (!latest) return fallback
     return { updateAvailable: isNewerVersion(latest, app.getVersion()), latest, url }
-  } catch {
+  } catch (e) {
+    logWarn('update', 'could not reach GitHub', e)
     return fallback
   }
 }
@@ -210,6 +215,30 @@ function createTray(): void {
   tray.on('double-click', () => showWindow())
 }
 
+/**
+ * Keep F12 / reload usable while developing and inert in the shipped build.
+ * This replaces @electron-toolkit/utils' optimizer, which cost us a dependency
+ * that broke startup outright for the sake of this one convenience.
+ */
+function watchWindowShortcuts(window: BrowserWindow): void {
+  const dev = !app.isPackaged
+  window.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return
+    const key = input.key.toLowerCase()
+    if (dev) {
+      if (key === 'f12') {
+        window.webContents.toggleDevTools()
+        event.preventDefault()
+      }
+      return
+    }
+    // Shipped: no devtools, and no reload that would drop live tracking.
+    if (key === 'f12' || (input.control && (key === 'r' || key === 'w'))) {
+      event.preventDefault()
+    }
+  })
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -273,7 +302,7 @@ function createWindow(): void {
     Menu.buildFromTemplate(template).popup({ window: mainWindow ?? undefined })
   })
 
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
@@ -396,8 +425,10 @@ function registerIpc(): void {
     try {
       await downloadEngine((done, total) => send('replay:download-progress', { done, total }))
       resetEncoderCache()
+      logInfo('engine', 'download complete')
       return { ok: true }
     } catch (e) {
+      logError('engine', 'download failed', e)
       return { ok: false, error: String((e as Error)?.message ?? e) }
     }
   })
@@ -405,7 +436,12 @@ function registerIpc(): void {
     resetEncoderCache()
     return removeEngine()
   })
-  ipcMain.handle('replay:start-video', () => {
+  ipcMain.handle('replay:start-video', async () => {
+    // The encoder probe fills its cache asynchronously (~450 ms at startup).
+    // Without this await, a recording begun in that window resolves 'auto' to
+    // the CPU encoder — 10x slower to start, and it costs in-game FPS. Once
+    // the probe has run this returns immediately.
+    await listEncoders()
     const r = startVideoOnly()
     if (r.ok) send('replay:recording-state', recordingInfo())
     return r
@@ -418,7 +454,10 @@ function registerIpc(): void {
     const r = await finishRecording(offsetMs ?? 0)
     send('replay:recording-state', recordingInfo())
     const pruned = enforceQuota()
-    if (pruned.length) send('replay:pruned', pruned)
+    if (pruned.length) {
+      logInfo('replay', 'quota removed ' + pruned.length + ' recording(s)', pruned.join(', '))
+      send('replay:pruned', pruned)
+    }
     send('replay:updated', listReplays())
     return r
   })
@@ -427,8 +466,19 @@ function registerIpc(): void {
     setAudioStart(typeof ts === 'number' ? ts : Date.now())
     return { ok: true }
   })
-  ipcMain.handle('replay:encoders', () => listEncoders())
+  ipcMain.handle('replay:encoders', async () => {
+    const available = await listEncoders()
+    return { available, auto: resolveEncoder('auto') }
+  })
   ipcMain.handle('replay:quota', () => quotaInfo())
+  ipcMain.handle('logs:open', () => openLogsFolder())
+  ipcMain.handle('logs:size', () => logsSize())
+  ipcMain.handle('logs:write', (_e, level: string, scope: string, msg: string, detail?: unknown) => {
+    // The renderer owns the audio capture, so its failures belong here too.
+    const lvl = level === 'error' ? logError : level === 'warn' ? logWarn : logInfo
+    lvl('ui/' + scope, msg, detail)
+    return { ok: true }
+  })
   ipcMain.handle('replay:windows', () => listWindows())
   ipcMain.handle('replay:recording-info', () => recordingInfo())
   ipcMain.handle('replay:list', () => listReplays())
@@ -633,6 +683,7 @@ function registerIpc(): void {
 // and the packaged build take two different locks, run at once, and then
 // collide on one another's Chromium cache.
 app.setName('nightfury')
+initLogging()
 
 // Single instance: if the app is already running (e.g. hidden in the tray),
 // relaunching the .exe just reveals the existing window instead of doing nothing.
@@ -643,8 +694,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(async () => {
-  electronApp.setAppUserModelId('com.nightfury.app')
-  app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+  // Groups the window under one taskbar icon and names it in notifications.
+  app.setAppUserModelId('com.nightfury.app')
+  app.on('browser-window-created', (_, window) => watchWindowShortcuts(window))
 
   initDb()
   registerIpc()
@@ -657,6 +709,7 @@ app.whenReady().then(async () => {
   // ffmpeg dying on its own is not a stop: tear the auto-record watchdog down,
   // tell the renderer to drop its audio capture, and surface the reason.
   onRecordingFailure((info) => {
+    logError('replay', 'engine stopped on its own: ' + info.reason, info.detail)
     stopAutoWatchdog()
     send('replay:failed', info)
     send('replay:recording-state', recordingInfo())

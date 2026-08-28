@@ -5,72 +5,14 @@
  */
 import type { MatchFilter } from './store'
 import { championName } from './ddragon'
+import { asNum, asBool, asArr, shapeOf } from '../shared/parse'
+import { logWarnOnce } from './log'
+export { applyFilter } from '../shared/filter'
+import type { MatchDetails, ScorePlayer, MatchRecord } from '../shared/types'
+// Declared once in src/shared/types.ts; re-exported so existing
+// imports from this module keep working.
+export type { MatchDetails, ScorePlayer, MatchRecord, TimelineEvent, LivePlayer, LiveGame, Friend, ScoutResult, ScoutDiag } from '../shared/types'
 
-export interface MatchDetails {
-  champLevel: number
-  laneCs: number
-  jungleCs: number
-  totalDamage: number
-  damageTaken: number
-  objectiveDamage: number
-  turretKills: number
-  wardsPlaced: number
-  wardsKilled: number
-  pinks: number
-  doubleKills: number
-  tripleKills: number
-  quadraKills: number
-  pentaKills: number
-  largestKillingSpree: number
-  largestMultiKill: number
-  items: number[]
-  spell1: number
-  spell2: number
-  keystone: number
-  primaryStyle: number
-  subStyle: number
-  runes: number[]
-  shards: number[]
-}
-
-export interface ScorePlayer {
-  pid: number
-  teamId: number
-  name: string
-  tagLine: string
-  championId: number
-  kills: number
-  deaths: number
-  assists: number
-  cs: number
-  gold: number
-  damage: number
-  vision: number
-  items: number[]
-}
-
-export interface MatchRecord {
-  gameId: number
-  participantId: number
-  playedAt: number
-  queueId: number
-  queueName: string
-  champion: string
-  championId: number
-  win: boolean
-  kills: number
-  deaths: number
-  assists: number
-  cs: number
-  csPerMin: number
-  kpPct: number
-  vision: number
-  damage: number
-  gold: number
-  durationS: number
-  details?: MatchDetails
-  players?: ScorePlayer[]
-}
 
 export const QUEUES: Record<number, string> = {
   420: 'Ranked Solo/Duo',
@@ -99,94 +41,33 @@ export function queueName(id: number): string {
   return dynamicQueues[id] ?? QUEUES[id] ?? `Queue ${id}`
 }
 
-const RANKED_QUEUES = new Set([420, 440])
-export function isRanked(queueId: number): boolean {
-  return RANKED_QUEUES.has(queueId)
-}
-
-export interface TimelineEvent {
-  t: number // timestamp in ms
-  kind: 'kill' | 'monster' | 'building'
-  killerId: number
-  victimId?: number
-  assists?: number[]
-  monster?: string // DRAGON | BARON_NASHOR | RIFTHERALD
-  subType?: string // dragon element
-  building?: string // TOWER_BUILDING | INHIBITOR_BUILDING
-  lane?: string // TOP_LANE | MID_LANE | BOT_LANE
-  teamId?: number
-  firstBlood?: boolean
-}
-
-export interface LivePlayer {
-  name: string
-  tagLine: string
-  championImage: string
-  championName: string
-  skinId: number
-  puuid: string
-  // Filled by the (keyless SGP) scouting pass — null until available.
-  rankTier?: string | null
-  rankDivision?: string | null
-  rankLp?: number | null
-  winrate?: number | null
-  games?: number | null
-  champGames?: number | null
-  champWinrate?: number | null
-}
-export interface LiveGame {
-  teamOne: LivePlayer[]
-  teamTwo: LivePlayer[]
-  queueId: number
-}
-
-export interface Friend {
-  id: string
-  name: string
-  tagLine: string
-  iconId: number
-  availability: string // chat | away | dnd | mobile | offline
-  game: string // lol | tft | valorant | lor | wildrift | other | offline
-  status: string // gameStatus for LoL (inGame, championSelect, inQueue…)
-  championId: number
-  note: string
-}
-
-export interface ScoutResult {
-  puuid: string
-  rankTier: string | null
-  rankDivision: string | null
-  rankLp: number | null
-  winrate: number | null
-  games: number | null
-  champGames: number | null
-  champWinrate: number | null
-  level?: number | null
-  smurf?: boolean
-  premadeGroup?: number
-}
-
-export interface ScoutDiag {
-  ok: boolean
-  tokenFound: boolean
-  baseFound: boolean
-  historyOk: boolean
-  base: string
-  region: string
-  error: string
-  sample: string
-}
-
-const num = (v: unknown): number => (typeof v === 'number' ? v : 0)
+const num = asNum
 
 export function parseGame(game: any, myPuuid: string): MatchRecord | null {
-  const identities: any[] = game.participantIdentities ?? []
+  const identities: any[] = asArr(game?.participantIdentities)
+  if (!identities.length) {
+    logWarnOnce(
+      'parseGame:no-identities',
+      'lcu',
+      'a game had no participantIdentities — the client format may have changed',
+      shapeOf(game)
+    )
+    return null
+  }
   const mine = identities.find((pi) => pi?.player?.puuid && pi.player.puuid === myPuuid)
   if (!mine) return null
 
-  const participants: any[] = game.participants ?? []
+  const participants: any[] = asArr(game?.participants)
   const me = participants.find((p) => p.participantId === mine.participantId)
-  if (!me) return null
+  if (!me) {
+    logWarnOnce(
+      'parseGame:no-participant',
+      'lcu',
+      'a game listed the player but carried no matching participant',
+      shapeOf(game)
+    )
+    return null
+  }
 
   // Full scoreboard (all 10 players) — names come from participantIdentities.
   const nameByPid = new Map<number, string>()
@@ -231,6 +112,14 @@ export function parseGame(game: any, myPuuid: string): MatchRecord | null {
   const jungleCs = num(s.neutralMinionsKilled)
   const cs = laneCs + jungleCs
   const durationS = num(game.gameDuration)
+  if (durationS <= 0) {
+    logWarnOnce(
+      'parseGame:no-duration',
+      'lcu',
+      'a game reported no duration — cs/min and similar rates will be wrong',
+      'gameId=' + game?.gameId
+    )
+  }
   const minutes = Math.max(durationS / 60, 1)
 
   // KP% = (my kills + my assists) / team's total kills.
@@ -271,7 +160,7 @@ export function parseGame(game: any, myPuuid: string): MatchRecord | null {
     queueName: queueName(num(game.queueId)),
     champion: championName(me.championId),
     championId: me.championId,
-    win: Boolean(s.win),
+    win: asBool(s.win),
     kills,
     deaths,
     assists,
@@ -285,99 +174,6 @@ export function parseGame(game: any, myPuuid: string): MatchRecord | null {
     details,
     players
   }
-}
-
-// ---------- Filtering ----------
-
-export function applyFilter(matches: MatchRecord[], f: MatchFilter): MatchRecord[] {
-  const cutoff =
-    f.sinceDays != null ? Date.now() - f.sinceDays * 24 * 60 * 60 * 1000 : null
-  return matches.filter((m) => {
-    if (f.queueId != null && m.queueId !== f.queueId) return false
-    if (f.champion && m.champion !== f.champion) return false
-    if (f.result === 'win' && !m.win) return false
-    if (f.result === 'loss' && m.win) return false
-    if (cutoff != null && m.playedAt < cutoff) return false
-    return true
-  })
-}
-
-// ---------- Aggregates ----------
-
-export interface Aggregate {
-  games: number
-  wins: number
-  winrate: number
-  avgKda: number
-  avgCsPerMin: number
-  avgKp: number
-  avgVision: number
-}
-
-export function aggregate(matches: MatchRecord[]): Aggregate {
-  const games = matches.length
-  if (!games) {
-    return { games: 0, wins: 0, winrate: 0, avgKda: 0, avgCsPerMin: 0, avgKp: 0, avgVision: 0 }
-  }
-  const wins = matches.filter((m) => m.win).length
-  const t = matches.reduce(
-    (a, m) => {
-      a.k += m.kills
-      a.d += m.deaths
-      a.a += m.assists
-      a.cspm += m.csPerMin
-      a.kp += m.kpPct
-      a.vis += m.vision
-      return a
-    },
-    { k: 0, d: 0, a: 0, cspm: 0, kp: 0, vis: 0 }
-  )
-  return {
-    games,
-    wins,
-    winrate: Math.round((wins / games) * 1000) / 10,
-    avgKda: Math.round(((t.k + t.a) / (t.d || 1)) * 100) / 100,
-    avgCsPerMin: Math.round((t.cspm / games) * 10) / 10,
-    avgKp: Math.round((t.kp / games) * 10) / 10,
-    avgVision: Math.round((t.vis / games) * 10) / 10
-  }
-}
-
-export interface ChampionStat {
-  champion: string
-  championId: number
-  games: number
-  wins: number
-  winrate: number
-  kda: number
-  csPerMin: number
-}
-
-export function perChampion(matches: MatchRecord[]): ChampionStat[] {
-  const map = new Map<string, MatchRecord[]>()
-  for (const m of matches) {
-    const arr = map.get(m.champion) ?? []
-    arr.push(m)
-    map.set(m.champion, arr)
-  }
-  const out: ChampionStat[] = []
-  for (const [champion, ms] of map) {
-    const wins = ms.filter((m) => m.win).length
-    const k = ms.reduce((s, m) => s + m.kills, 0)
-    const d = ms.reduce((s, m) => s + m.deaths, 0)
-    const a = ms.reduce((s, m) => s + m.assists, 0)
-    const cspm = ms.reduce((s, m) => s + m.csPerMin, 0) / ms.length
-    out.push({
-      champion,
-      championId: ms[0].championId,
-      games: ms.length,
-      wins,
-      winrate: Math.round((wins / ms.length) * 1000) / 10,
-      kda: Math.round(((k + a) / (d || 1)) * 100) / 100,
-      csPerMin: Math.round(cspm * 10) / 10
-    })
-  }
-  return out.sort((x, y) => y.games - x.games)
 }
 
 // ---------- Export serialization ----------

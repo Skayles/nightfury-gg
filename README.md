@@ -60,8 +60,9 @@ reads as a stats companion.
 - **Replays** — record your games to **MP4** to review them or send them to a
   coach. The video **engine** (ffmpeg, ~50 MB) is optional and **downloaded on
   demand**, so nothing bloats the app for people who don't record. Record manually
-  or **automatically** with each game, with GPU-accelerated encoding and optional
-  game/mic audio.
+  or **automatically** with each game, with optional game/mic audio. The encoder
+  is picked for you, audio is aligned with the video automatically, and a
+  **storage limit** keeps the folder from growing without end.
 - **Friends list** — a side drawer showing your Riot friends and the game they're
   on.
 - **Google Sheet export** — send your history to a Google Sheet with **no Google
@@ -72,6 +73,9 @@ reads as a stats companion.
 - **Update notifier** — shows a banner when a newer version is on GitHub Releases.
 - **Discord Rich Presence** *(optional, off by default)* — shows your current
   champion and a game timer in your Discord status.
+- **Diagnostic log** — when something fails, the reason is written to a log
+  file you can open from **Options**. Attach it to a bug report and it becomes
+  something anyone can act on.
 - **Options** — language (🇫🇷 / 🇬🇧), Discord presence, tray behavior, replay
   settings, storage, and an optional Riot API key (see *Advanced mode*).
 - **Bilingual** — full French / English interface, with local-time timestamps.
@@ -128,11 +132,29 @@ Recordings are produced by **ffmpeg** (the "engine"), which captures the screen
 and encodes straight to **MP4** at your chosen quality. The engine is **not
 bundled** — download it once from the Replay tab (~50 MB) and remove it anytime.
 
-Encoding can run on your **GPU** (AMD / NVIDIA / Intel) to avoid in-game FPS
-drops, and can include game and/or microphone audio. Recording uses `gdigrab`, so
-run **League in borderless windowed** (a fullscreen/DirectX capture mode is also
-available). Capturing the game's output sound requires **Stereo Mix** or a virtual
-audio cable on Windows.
+**Encoder.** Left on **Auto**, the app tests which hardware encoders your
+machine can really open and uses the best one — hardware encoding starts about
+ten times faster than the CPU one and spares your in-game FPS. Encoders your GPU
+does not provide are greyed out rather than left to fail silently, and the one
+Auto settled on is shown under the buttons.
+
+**Audio.** Game sound is captured through the app itself, so **Stereo Mix is not
+required**. You can still point the capture at a specific recording device
+(Stereo Mix, a virtual cable, a line-in) if you would rather — and Windows' own
+per-app output routing, under *Settings → Sound → Volume mixer*, lets you send
+League to a virtual cable to record the game without Discord or music.
+
+**Sync.** The offset between picture and sound is measured on every recording
+and corrected on its own. The slider in the Replay tab is only a fine-tune, for
+the rare setup where something still feels early or late.
+
+**Capture.** Recording uses `gdigrab`, so run **League in borderless windowed**
+(a fullscreen/DirectX mode and a single-window mode are also available).
+
+**Storage limit.** Next to the folder picker, cap how much room recordings may
+use — 10 / 25 / 50 GB, a custom figure, or unlimited. Past the cap the oldest
+recordings are removed first, and only files the app created itself are ever
+touched. Recording also refuses to start with less than 2 GB free.
 
 ### ⚠️ Windows SmartScreen / antivirus warning
 
@@ -270,8 +292,10 @@ comprenne tout de suite qu'il s'agit d'un compagnon de stats.
 - **Replays** — enregistrez vos parties en **MP4** pour les revoir ou les envoyer
   à un coach. Le **moteur** vidéo (ffmpeg, ~50 Mo) est optionnel et **téléchargé à
   la demande**, donc rien n'alourdit l'app pour ceux qui n'enregistrent pas.
-  Enregistrement manuel ou **automatique** à chaque partie, avec encodage sur le
-  GPU et son du jeu/micro en option.
+  Enregistrement manuel ou **automatique** à chaque partie, avec son du jeu/micro
+  en option. L'encodeur est choisi pour vous, l'audio est aligné automatiquement
+  sur la vidéo, et une **limite de stockage** empêche le dossier de grossir sans
+  fin.
 - **Liste d'amis** — un tiroir latéral montrant vos amis Riot et le jeu sur lequel
   ils sont.
 - **Export Google Sheet** — envoie votre historique vers un Google Sheet **sans
@@ -283,6 +307,9 @@ comprenne tout de suite qu'il s'agit d'un compagnon de stats.
   est sur GitHub.
 - **Présence Discord** *(optionnelle, désactivée par défaut)* — affiche votre
   champion et le chrono dans votre statut Discord.
+- **Journal de diagnostic** — quand quelque chose échoue, la raison est écrite
+  dans un fichier que vous pouvez ouvrir depuis les **Options**. Joignez-le à un
+  signalement et il devient exploitable.
 - **Options** — langue (🇫🇷 / 🇬🇧), présence Discord, comportement du tray,
   réglages des replays, stockage, et clé API Riot optionnelle (voir *Mode avancé*).
 - **Bilingue** — interface complète français / anglais, heures en fuseau local.
@@ -346,11 +373,33 @@ l'écran et encode directement en **MP4** à la qualité choisie. Le moteur **n'
 pas embarqué** — téléchargez-le une fois depuis l'onglet Replay (~50 Mo) et
 supprimez-le à tout moment.
 
-L'encodage peut se faire sur votre **carte graphique** (AMD / NVIDIA / Intel) pour
-éviter les pertes de FPS, et inclure le son du jeu et/ou du micro. La capture
-utilise `gdigrab` : lancez **League en fenêtré sans bordure** (un mode plein
-écran/DirectX est aussi disponible). Capturer le son de sortie du jeu nécessite
-**Stereo Mix** ou un câble audio virtuel sous Windows.
+**Encodeur.** Laissé sur **Auto**, l'application teste quels encodeurs matériels
+votre machine sait réellement ouvrir et retient le meilleur — l'encodage matériel
+démarre environ dix fois plus vite que celui du processeur et épargne vos FPS en
+jeu. Les encodeurs que votre carte ne fournit pas sont grisés plutôt que laissés
+échouer en silence, et celui qu'Auto a retenu est affiché sous les boutons.
+
+**Audio.** Le son du jeu est capturé par l'application elle-même : **Stereo Mix
+n'est pas nécessaire**. Vous pouvez malgré tout viser un périphérique
+d'enregistrement précis (Stereo Mix, câble virtuel, entrée ligne) si vous
+préférez — et la redirection par application de Windows, dans *Paramètres → Son →
+Mélangeur de volume*, permet d'envoyer League vers un câble virtuel pour
+enregistrer le jeu sans Discord ni musique.
+
+**Synchronisation.** Le décalage entre l'image et le son est mesuré à chaque
+enregistrement et corrigé tout seul. Le curseur de l'onglet Replays ne sert plus
+qu'à une retouche fine, pour les rares configurations où quelque chose paraît
+encore en avance ou en retard.
+
+**Capture.** L'enregistrement utilise `gdigrab` : lancez **League en fenêtré sans
+bordure** (un mode plein écran/DirectX et un mode fenêtre unique sont aussi
+disponibles).
+
+**Limite de stockage.** À côté du sélecteur de dossier, plafonnez la place que
+peuvent occuper vos enregistrements — 10 / 25 / 50 Go, une valeur personnalisée,
+ou illimité. Au-delà, les plus anciens sont supprimés en premier, et seuls les
+fichiers créés par l'application sont concernés. L'enregistrement refuse par
+ailleurs de démarrer sous 2 Go d'espace libre.
 
 
 ### ⚠️ Avertissement SmartScreen / antivirus (Windows)

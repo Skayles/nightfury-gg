@@ -24,6 +24,12 @@ import {
 import { createGunzip } from 'zlib'
 import { statfsSync } from 'fs'
 import { getSettings, setSettings } from './store'
+import { logInfo, logWarn, logError } from './log'
+import type { ReplayFile } from '../shared/types'
+// Declared once in src/shared/types.ts; re-exported so existing
+// imports from this module keep working.
+export type { ReplayFile } from '../shared/types'
+
 
 // ffmpeg static binary (gzipped) — Node's built-in zlib unpacks it, so no extra
 // dependency is needed. Asset names follow `ffmpeg-{platform}-{arch}.gz`.
@@ -67,13 +73,6 @@ function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 }
 
-export interface ReplayFile {
-  name: string
-  path: string
-  size: number
-  mtime: number
-}
-
 export function listReplays(): ReplayFile[] {
   const dir = replayDir()
   if (!existsSync(dir)) return []
@@ -111,8 +110,8 @@ export function cleanupTempFiles(): number {
     try {
       unlinkSync(join(dir, name))
       removed++
-    } catch {
-      /* in use or unreadable — leave it */
+    } catch (e) {
+      logWarn('replay', 'could not delete leftover temp file ' + name, e)
     }
   }
   return removed
@@ -122,7 +121,7 @@ export function cleanupTempFiles(): number {
 const MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024
 
 /** Free bytes on the volume holding the replay folder (Infinity if unknown). */
-export function freeSpaceBytes(): number {
+function freeSpaceBytes(): number {
   try {
     const st = statfsSync(replayDir())
     return st.bsize * st.bavail
@@ -138,6 +137,7 @@ export function downloadEngine(onProgress: (done: number, total: number) => void
     try {
       ensureDir(engineDir())
     } catch (e) {
+      logError('engine', 'cannot create the engine folder', e)
       reject(e)
       return
     }
@@ -202,7 +202,7 @@ export function revealReplay(path: string): void {
  * well be a general Videos folder, so automatically pruning "whatever video is
  * oldest" could destroy footage the app never created.
  */
-export function isOwnRecording(name: string): boolean {
+function isOwnRecording(name: string): boolean {
   const prefix = 'replay_'
   const lower = name.toLowerCase()
   if (!lower.startsWith(prefix) || !lower.endsWith('.mp4')) return false
@@ -216,13 +216,6 @@ export function isOwnRecording(name: string): boolean {
     } else if (c !== shape[i]) return false
   }
   return true
-}
-
-/** Total bytes used by this app's own recordings. */
-export function ownRecordingsSize(): number {
-  return listReplays()
-    .filter((r) => isOwnRecording(r.name))
-    .reduce((sum, r) => sum + r.size, 0)
 }
 
 export interface QuotaInfo {
@@ -265,8 +258,8 @@ export function enforceQuota(): string[] {
       unlinkSync(r.path)
       used -= r.size
       removed.push(r.name)
-    } catch {
-      /* locked or gone — skip it rather than spin */
+    } catch (e) {
+      logWarn('replay', 'could not delete ' + r.name + ' for the storage limit', e)
     }
   }
   return removed
@@ -611,7 +604,7 @@ function stamp(): string {
  * hardware encoder (measured ~790 ms against ~65 ms), which is the single
  * biggest source of startup latency in a capture.
  */
-function resolveEncoder(choice: string): string {
+export function resolveEncoder(choice: string): string {
   if (choice !== 'auto') return choice
   const available = encoderCache ?? ['cpu']
   for (const pref of ['amd', 'nvidia', 'intel']) {
@@ -746,6 +739,11 @@ export function startVideoOnly(): { ok: boolean; error?: string; file?: string }
     })
     rec = p
     recStarted = Date.now()
+    logInfo(
+      'replay',
+      'recording started',
+      `encoder=${resolveEncoder(s.replayEncoder)} capture=${s.replayCapture} ${height}p${fps} file=${recFile}`
+    )
     // Fresh audio temp for this recording.
     try {
       if (existsSync(audioTmp)) unlinkSync(audioTmp)
@@ -856,6 +854,7 @@ export function finishRecording(offsetMs: number): Promise<{ ok: boolean; file?:
       } finally {
         muxing = false
       }
+      logInfo('replay', 'recording finished', `offset=${auto + (offsetMs || 0)}ms file=${file}`)
       resolve({ ok: true, file })
     }
     stopping = true
